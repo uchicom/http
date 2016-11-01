@@ -5,8 +5,12 @@ package com.uchicom.http;
 
 import java.io.PrintStream;
 
+import com.uchicom.server.MultiSocketServer;
 import com.uchicom.server.Parameter;
+import com.uchicom.server.PoolSocketServer;
+import com.uchicom.server.SelectorServer;
 import com.uchicom.server.Server;
+import com.uchicom.server.SingleSocketServer;
 
 /**
  * Parameterに統一の機能を持たせるほうがいいかな。
@@ -54,16 +58,29 @@ public class HttpParameter extends Parameter {
     	Server server = null;
 		switch (get("type")) {
 		case "multi":
-			server = new MultiHttpServer(this);
+			server = new MultiSocketServer(this, (parameter, socket)->{
+				return new HttpServerProcess(parameter, socket);
+			});
 			break;
 		case "pool":
-			server = new PoolHttpServer(this);
+			server = new PoolSocketServer(this, (parameter, socket)->{
+				return new HttpServerProcess(parameter, socket);
+			});
 			break;
 		case "single":
-			server = new SingleHttpServer(this);
+			server = new SingleSocketServer(this, (parameter, socket)->{
+				return new HttpServerProcess(parameter, socket);
+			});
 			break;
 		case "selector":
-			server = new SelectorHttpServer(this);
+			server = new SelectorServer(this, ()->{
+				return new HttpHandler();
+			});
+			break;
+		case "redirect":
+			server = new SingleSocketServer(this, (parameter, socket)->{
+				return new RedirectHttpServerProcess(parameter, socket);
+			});
 			break;
 		}
     	return server;
