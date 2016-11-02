@@ -15,11 +15,11 @@ public class RedirectHttpServerProcess implements ServerProcess {
     private static byte[] responseFooder = "\r\n\r\n".getBytes();
 	private Parameter parameter;
 	private Socket socket;
-	Router router = new DefaultRouter();
+	Router router;
 	public RedirectHttpServerProcess(Parameter parameter, Socket socket) {
 		this.parameter = parameter;
 		this.socket = socket;
-		router.init(parameter.getFile("dir"));
+		router = Context.singleton().getRouter();
 	}
 
 	@Override

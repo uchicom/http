@@ -52,6 +52,8 @@ public class HttpParameter extends Parameter {
     		put("pool", Constants.DEFAULT_POOL);
     	}
 
+    	Context.singleton().init(getFile("dir"));
+
         return true;
     }
     public Server createServer() {

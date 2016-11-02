@@ -108,8 +108,6 @@ public class DefaultRouter implements Router {
 	public static void createMap(File file) {
 		if (file.isFile()) {
 			String relativePath = file.toURI().getPath().substring(htmlFileLength - 1);
-			System.out.print(relativePath);
-			System.out.print(" ");
 			WebFile webFile = new WebFile(file);
 			map.put(relativePath, webFile);
 		} else if (file.isDirectory()) {

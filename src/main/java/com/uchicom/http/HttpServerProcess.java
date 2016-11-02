@@ -21,12 +21,12 @@ public class HttpServerProcess implements ServerProcess {
 
 	private Socket socket;
 
-    protected static Router router = new DefaultRouter();
+    protected static Router router;
 	/** 最終処理時刻 */
 	private long lastTime = System.currentTimeMillis();
 	public HttpServerProcess(Parameter parameter, Socket socket) {
 		this.socket = socket;
-		router.init(parameter.getFile("dir"));
+		router = Context.singleton().getRouter();
 	}
 	@Override
 	public long getLastTime() {
