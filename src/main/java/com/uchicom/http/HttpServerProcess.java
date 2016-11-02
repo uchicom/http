@@ -26,6 +26,7 @@ public class HttpServerProcess implements ServerProcess {
 	private long lastTime = System.currentTimeMillis();
 	public HttpServerProcess(Parameter parameter, Socket socket) {
 		this.socket = socket;
+		router.init(parameter.getFile("dir"));
 	}
 	@Override
 	public long getLastTime() {

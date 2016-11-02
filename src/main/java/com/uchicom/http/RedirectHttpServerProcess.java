@@ -19,7 +19,7 @@ public class RedirectHttpServerProcess implements ServerProcess {
 	public RedirectHttpServerProcess(Parameter parameter, Socket socket) {
 		this.parameter = parameter;
 		this.socket = socket;
-		router.init(parameter.getFile("base"));
+		router.init(parameter.getFile("dir"));
 	}
 
 	@Override

@@ -55,7 +55,7 @@ public class WebFile {
 	 *
 	 * @param file
 	 */
-	public WebFile(File file, String prefix) {
+	public WebFile(File file) {
 		this.file = file;
 		String name = file.getName();
 		int lastIndex = name.lastIndexOf(".");
