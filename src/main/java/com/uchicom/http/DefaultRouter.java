@@ -9,9 +9,18 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.SocketAddress;
+import java.nio.file.FileSystem;
+import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchEvent.Kind;
+import java.nio.file.WatchEvent.Modifier;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author Uchiyama Shigeki
@@ -19,8 +28,8 @@ import java.util.Map;
  */
 public class DefaultRouter implements Router {
 
-	protected static Map<String, WebFile> map = new HashMap<String, WebFile>();
-	protected static Map<String, File> errorMap = new HashMap<String, File>();
+	protected static Map<String, WebFile> map = new ConcurrentHashMap<String, WebFile>();
+	protected static Map<String, File> errorMap = new ConcurrentHashMap<String, File>();
 
 	protected static int htmlFileLength;
 
@@ -35,6 +44,7 @@ public class DefaultRouter implements Router {
 		htmlFileLength = htmlFile.toURI().getPath().length();
 		createMap(htmlFile);
 		createErrorMap(new File(baseFile, "error"));
+		watch(baseFile);
 	}
 
 	@Override
@@ -170,4 +180,54 @@ public class DefaultRouter implements Router {
 
 	}
 
+	private void watch(File baseFile) {
+		WatchKey key = null;
+		try {
+			Path path = new File(baseFile, "html").toPath();
+			FileSystem fileSystem = path.getFileSystem();
+			WatchService service = fileSystem.newWatchService();
+			key = path.register(service, new Kind[] { StandardWatchEventKinds.ENTRY_MODIFY }, new Modifier[0]);
+			while (key.isValid()) {
+
+				// スレッドの割り込み = 終了要求を判定する.
+				if (Thread.currentThread().isInterrupted()) {
+					throw new InterruptedException();
+				}
+
+				WatchKey detecedtWatchKey = service.poll(500, TimeUnit.MILLISECONDS);
+				if (detecedtWatchKey == null) {
+					// タイムアウト
+					System.out.print(".");
+					continue;
+				}
+
+				if (detecedtWatchKey.equals(key)) {
+					for (WatchEvent<?> event : detecedtWatchKey.pollEvents()) {
+						Path file = (Path) event.context();
+						System.out.println(event.kind() +
+								": count=" + event.count() +
+								": path=" + file);
+
+						File htmlFile = new File(baseFile, "html");
+						int htmlFileLength = htmlFile.toURI().getPath().length();
+						System.out.println(htmlFile.toURI().getPath());
+						System.out.println(file.toFile().toURI().getPath());
+						String relativePath = file.toFile().toURI().getPath().substring(htmlFileLength - 1);
+						if (map.containsKey(relativePath)) {
+							System.out.println("ある！");
+						} else {
+							System.out.println("ない！");
+						}
+					}
+
+				}
+				detecedtWatchKey.reset();
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+			key.cancel();
+		}
+	}
 }
