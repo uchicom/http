@@ -95,7 +95,8 @@ public class DefaultRouter implements Router {
 			ps.print("Content-Type: ");
 			ps.print(file.getContentType());
 			ps.print("\r\n");
-			ps.print("Expires: 43200");
+			ps.print("Expires: ");
+			ps.print(Constants.formatter.format(file.getLastModified().plusDays(1)));
 			ps.print("\r\n\r\n");
 			byte[] bytes = null;
 			if ("text/html".equals(file.getContentType())) {
