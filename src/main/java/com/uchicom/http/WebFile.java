@@ -5,6 +5,9 @@ package com.uchicom.http;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.Properties;
 
 /**
@@ -14,6 +17,7 @@ import java.util.Properties;
 public class WebFile {
 
 	private File file = null;
+	private OffsetDateTime lastModified;
 	public static Properties mimeProperties;
 	static {
 		mimeProperties = new Properties();
@@ -65,11 +69,16 @@ public class WebFile {
 		if (contentType == null) {
             contentType = "text/plain";
 		}
+		lastModified = OffsetDateTime.ofInstant(Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
 	}
 
 
 	public long length() {
 		return file.length();
+	}
+
+	public OffsetDateTime getLastModified() {
+		return lastModified;
 	}
 
 

@@ -1,7 +1,7 @@
 package com.uchicom.http;
 
-import java.text.SimpleDateFormat;
-import java.util.Locale;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 public class Constants {
 
@@ -15,6 +15,6 @@ public class Constants {
 	/** デフォルトスレッドプール数 */
 	public static String DEFAULT_POOL = "10";
 
-	public static SimpleDateFormat format = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.UK);
+	public static DateTimeFormatter formatter = DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneId.of("Z"));
 
 }

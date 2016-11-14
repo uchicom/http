@@ -7,7 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.SocketAddress;
-import java.util.Date;
+import java.time.temporal.TemporalAccessor;
 import java.util.Map;
 
 /**
@@ -23,7 +23,7 @@ public interface Router {
      * @param baseFile
      */
     public void init(File baseFile);
-    public boolean isModified(String fileName, Date ifModified);
+    public boolean isModified(String fileName, TemporalAccessor ifModified);
     /**
      * 指定のURLが存在するかをチェックする
      * @param filePath

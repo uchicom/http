@@ -17,7 +17,8 @@ import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchEvent.Modifier;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
-import java.util.Date;
+import java.time.OffsetDateTime;
+import java.time.temporal.TemporalAccessor;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -48,9 +49,9 @@ public class DefaultRouter implements Router {
 	}
 
 	@Override
-	public boolean isModified(String filePath, Date ifModified) {
+	public boolean isModified(String filePath, TemporalAccessor ifModified) {
 		WebFile file = map.get(filePath);
-		return file.getFile().lastModified() / 1000 == ifModified.getTime() / 1000;
+		return file.getLastModified().equals(ifModified);
 	}
 
 	/* (non-Javadoc)
@@ -78,7 +79,7 @@ public class DefaultRouter implements Router {
 			long len = file.length();
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
-			ps.print(Constants.format.format(new Date()));
+			ps.print(Constants.formatter.format(OffsetDateTime.now()));
 			ps.print("\r\n");
 			ps.print("Server: uchicom-http\r\n");
 			ps.print("Accept-Ranges: bytes\r\n");
@@ -89,10 +90,12 @@ public class DefaultRouter implements Router {
 				ps.print("\r\n");
 			}
 			ps.print("Last-Modified: ");
-			ps.print(Constants.format.format(new Date(file.getFile().lastModified())));
+			ps.print(Constants.formatter.format(file.getLastModified()));
 			ps.print("\r\n");
 			ps.print("Content-Type: ");
 			ps.print(file.getContentType());
+			ps.print("\r\n");
+			ps.print("Expires: 43200");
 			ps.print("\r\n\r\n");
 			byte[] bytes = null;
 			if ("text/html".equals(file.getContentType())) {
@@ -153,7 +156,7 @@ public class DefaultRouter implements Router {
 			if (errorMap.containsKey(code)) {
 				File error = errorMap.get(code);
 				ps.print("Date: ");
-				ps.print(Constants.format.format(new Date()));
+				ps.print(Constants.formatter.format(OffsetDateTime.now()));
 				ps.print("\r\n");
 				ps.print("Server: SigleHttpServer\r\n");
 				ps.print("Accept-Ranges: bytes\r\n");

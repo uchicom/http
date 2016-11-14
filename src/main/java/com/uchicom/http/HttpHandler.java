@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.Date;
+import java.time.OffsetDateTime;
 
 import com.uchicom.server.Handler;
 
@@ -82,7 +82,7 @@ public class HttpHandler implements Handler {
         if (file == null || !file.exists() || !file.isFile()) {
             strBuff.append("HTTP/1.1 404 ERR \r\n");
             strBuff.append("Date: ");
-            strBuff.append(Constants.format.format(new Date()));
+            strBuff.append(Constants.formatter.format(OffsetDateTime.now()));
             strBuff.append("\r\n");
             strBuff.append("Server: non\r\n");
             strBuff.append("Accept-Ranges: bytes\r\n");
@@ -93,7 +93,7 @@ public class HttpHandler implements Handler {
         } else {
             strBuff.append("HTTP/1.1 200 OK \r\n");
             strBuff.append("Date: ");
-            strBuff.append(Constants.format.format(new Date()));
+            strBuff.append(Constants.formatter.format(OffsetDateTime.now()));
             strBuff.append("\r\n");
             strBuff.append("Server: non\r\n");
             strBuff.append("Accept-Ranges: bytes\r\n");

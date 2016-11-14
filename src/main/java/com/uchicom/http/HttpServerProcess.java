@@ -6,8 +6,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URLDecoder;
+import java.time.OffsetDateTime;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -83,12 +84,12 @@ public class HttpServerProcess implements ServerProcess {
 //                        boolean bPost = false;
 //                        boolean bBody = false;
                     }
-                    Date ifModified = null;
+                    TemporalAccessor ifModified = null;
                     String line = br.readLine();
                     while (line != null && !"".equals(line)) {
                         line = br.readLine();
                         if (line.startsWith("If-Modified-Since")) {
-                        	ifModified = Constants.format.parse(line.substring(19));
+                        	ifModified = Constants.formatter.parse(line.substring(19));
                         }
                     }
                     if (router.exists(fileName)) {
@@ -96,7 +97,7 @@ public class HttpServerProcess implements ServerProcess {
                     		//キャッシュ
                             os.write("HTTP/1.1 304 Not Modified \r\n".getBytes());
                             os.write("Date: ".getBytes());
-                            os.write(Constants.format.format(new Date()).getBytes());
+                            os.write(Constants.formatter.format(OffsetDateTime.now()).getBytes());
                             os.write("\r\n".getBytes());
                             os.write("\r\n".getBytes());
                     	} else {
