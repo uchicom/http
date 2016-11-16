@@ -211,9 +211,6 @@ public class DefaultRouter implements Router {
 					if (detecedtWatchKey.equals(key)) {
 						for (WatchEvent<?> event : detecedtWatchKey.pollEvents()) {
 							Path file = (Path) event.context();
-							System.out.println(event.kind() +
-									": count=" + event.count() +
-									": path=" + file);
 
 							File htmlFile = new File(baseFile, "html");
 							String value = file.toString().replaceAll("\\\\", "/");
