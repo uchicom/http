@@ -36,7 +36,7 @@ public interface Router {
      * @param paramMap
      * @param outputStream
      */
-    public void request(String filePath, SocketAddress address, Map<String, String[]> paramMap, OutputStream outputStream) throws IOException;
+    public void request(String filePath, SocketAddress address, Map<String, String[]> paramMap, Map<String, String> headMap, OutputStream outputStream) throws IOException;
 
     public void error(String code, OutputStream outputStream) throws IOException;
 }

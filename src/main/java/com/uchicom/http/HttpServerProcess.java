@@ -73,25 +73,27 @@ public class HttpServerProcess implements ServerProcess {
 
                     }
                     Map<String, String[]> paramMap = null;
+                    Map<String, String> headMap = new HashMap<>();
                     if (urls.length > 1) {
                         //GETパラメータありなので解析。
                         paramMap = createGetParamMap(urls[1]);
-                    } else {
-                        //POSTデータ検証
-                        head = br.readLine();
-//                        System.out.println("1" + head);
-//                        StringBuffer strBuff = new StringBuffer();
-//                        boolean bPost = false;
-//                        boolean bBody = false;
                     }
                     TemporalAccessor ifModified = null;
                     String line = br.readLine();
                     while (line != null && !"".equals(line)) {
                         line = br.readLine();
-                        if (line.startsWith("If-Modified-Since")) {
-                        	ifModified = Constants.formatter.parse(line.substring(19));
+                        System.out.println(line);
+                        int index = line.indexOf(":");
+                        if (index >= 0) {
+	                        headMap.put(line.substring(0, index), line.substring(index + 2));
+	                        if (line.startsWith("If-Modified-Since:")) {
+	                        	ifModified = Constants.formatter.parse(line.substring(19));
+	                        }
+                        } else {
+                        	headMap.put(line, line);
                         }
                     }
+                    // TODO WebFileを継承してBasicWebFileとする
                     if (router.exists(fileName)) {
                     	if (ifModified != null && router.isModified(fileName, ifModified)) {
                     		//キャッシュ
@@ -101,7 +103,7 @@ public class HttpServerProcess implements ServerProcess {
                             os.write("\r\n".getBytes());
                             os.write("\r\n".getBytes());
                     	} else {
-                    		router.request(fileName, socket.getRemoteSocketAddress(), paramMap, os);
+                    		router.request(fileName, socket.getRemoteSocketAddress(), paramMap, headMap, os);
                     	}
                     } else {
                         //Not Found

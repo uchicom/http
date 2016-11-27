@@ -5,6 +5,7 @@ package com.uchicom.http;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -19,7 +20,9 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAccessor;
+import java.util.Base64;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -29,8 +32,9 @@ import java.util.concurrent.TimeUnit;
  */
 public class DefaultRouter implements Router {
 
-	protected static Map<String, WebFile> map = new ConcurrentHashMap<String, WebFile>();
-	protected static Map<String, File> errorMap = new ConcurrentHashMap<String, File>();
+	protected static Map<String, WebFile> fileMap = new ConcurrentHashMap<>();
+	protected static Map<String, Properties> basicMap = new ConcurrentHashMap<>();
+	protected static Map<String, File> errorMap = new ConcurrentHashMap<>();
 
 	protected static int htmlFileLength;
 
@@ -50,7 +54,7 @@ public class DefaultRouter implements Router {
 
 	@Override
 	public boolean isModified(String filePath, TemporalAccessor ifModified) {
-		WebFile file = map.get(filePath);
+		WebFile file = fileMap.get(filePath);
 		return file.getLastModified().equals(ifModified);
 	}
 
@@ -59,7 +63,7 @@ public class DefaultRouter implements Router {
 	 */
 	@Override
 	public boolean exists(String filePath) {
-		return map.containsKey(filePath);
+		return fileMap.containsKey(filePath);
 	}
 
 	/*
@@ -72,10 +76,50 @@ public class DefaultRouter implements Router {
 	public void request(String fileName,
 			SocketAddress address,
 			Map<String, String[]> paramMap,
+			Map<String, String> headMap,
 			OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
-			WebFile file = map.get(fileName);
+			WebFile file = fileMap.get(fileName);
+			if (basicMap.containsKey(fileName.substring(0, fileName.lastIndexOf('/') + 1))) {
+				boolean auth = false;
+				//ベーシック認証チェック用
+				if (headMap.containsKey("Authorization")) {
+					//ベーシック認証処理
+					String authorization = headMap.get("Authorization");
+					int typeIndex = authorization.indexOf(' ');
+					String type = authorization.substring(0, typeIndex);
+					String encoded = authorization.substring(typeIndex + 1);
+
+					if ("Basic".equals(type)) {
+						try {
+							String decoded = new String(Base64.getDecoder().decode(encoded));
+							int index = decoded.indexOf(":");
+							//認証結果
+							Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
+							if (prop.containsKey(decoded.substring(0, index))) {
+								auth = decoded.substring(index + 1).equals(prop.getProperty(decoded.substring(0, index)));
+							}
+						} catch (Exception e) {
+			                error("400", outputStream);
+						}
+					}
+				}
+				if (!auth) {
+					//認証エラー
+					ps.print("HTTP/1.1 401 Authorization Required\r\n");
+					ps.print("Date: ");
+					ps.print(Constants.formatter.format(OffsetDateTime.now()));
+					ps.print("\r\n");
+					ps.print("Server: uchicom-http\r\n");
+					ps.print("WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n");
+					ps.print("Connection: close\r\n");
+					ps.print("Transfer-Encoding: chunked\r\n");
+					ps.print("Content-Type: text/html; charset=iso-8859-1\r\n");
+					ps.flush();
+					return;
+				}
+			}
 			long len = file.length();
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
@@ -111,6 +155,7 @@ public class DefaultRouter implements Router {
 					ps.write(bytes, 0, length);
 				}
 			}
+			ps.flush();
 		}
 	}
 
@@ -121,9 +166,28 @@ public class DefaultRouter implements Router {
 	 */
 	public static void createMap(File file) {
 		if (file.isFile()) {
-			String relativePath = file.toURI().getPath().substring(htmlFileLength - 1);
-			WebFile webFile = new WebFile(file);
-			map.put(relativePath, webFile);
+			if (file.getName().startsWith(".")) {
+				//隠しファイルは表示しない
+				if (".basic".equals(file.getName())) {
+					String relativePath = file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+					//Basicファイル認証がある場合
+					try (FileInputStream fis = new FileInputStream(file)) {
+						Properties properties = new Properties();
+						properties.load(fis);
+						basicMap.put(relativePath, properties);
+					} catch (FileNotFoundException e) {
+						// TODO 自動生成された catch ブロック
+						e.printStackTrace();
+					} catch (IOException e) {
+						// TODO 自動生成された catch ブロック
+						e.printStackTrace();
+					}
+				}
+			} else {
+				String relativePath = file.toURI().getPath().substring(htmlFileLength - 1);
+				WebFile webFile = new WebFile(file);
+				fileMap.put(relativePath, webFile);
+			}
 		} else if (file.isDirectory()) {
 			File[] childs = file.listFiles();
 			for (File childFile : childs) {
@@ -216,16 +280,16 @@ public class DefaultRouter implements Router {
 							String value = file.toString().replaceAll("\\\\", "/");
 							String relativePath = "/" + value;
 							if (StandardWatchEventKinds.ENTRY_CREATE.equals(event.kind())) {
-								if (!map.containsKey(relativePath)) {
-									map.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
+								if (!fileMap.containsKey(relativePath)) {
+									fileMap.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
 								}
 							} else if (StandardWatchEventKinds.ENTRY_DELETE.equals(event.kind())) {
-								if (map.containsKey(relativePath)) {
-									map.remove(relativePath);
+								if (fileMap.containsKey(relativePath)) {
+									fileMap.remove(relativePath);
 								}
 							} else if (StandardWatchEventKinds.ENTRY_MODIFY.equals(event.kind())) {
-								if (map.containsKey(relativePath)) {
-									map.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
+								if (fileMap.containsKey(relativePath)) {
+									fileMap.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
 								}
 							}
 						}
