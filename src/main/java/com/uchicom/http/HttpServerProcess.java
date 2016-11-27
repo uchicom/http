@@ -82,7 +82,6 @@ public class HttpServerProcess implements ServerProcess {
                     String line = br.readLine();
                     while (line != null && !"".equals(line)) {
                         line = br.readLine();
-                        System.out.println(line);
                         int index = line.indexOf(":");
                         if (index >= 0) {
 	                        headMap.put(line.substring(0, index), line.substring(index + 2));
