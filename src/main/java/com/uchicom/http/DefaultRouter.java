@@ -151,7 +151,7 @@ public class DefaultRouter implements Router {
 
 			try (FileInputStream fis = new FileInputStream(file.getFile());) {
 				int length = 0;
-				while ((length = fis.read(bytes)) >= 0) {
+				while ((length = fis.read(bytes)) > 0) {
 					ps.write(bytes, 0, length);
 				}
 			}
@@ -259,7 +259,7 @@ public class DefaultRouter implements Router {
 				Path path = new File(baseFile, "html").toPath();
 				FileSystem fileSystem = path.getFileSystem();
 				WatchService service = fileSystem.newWatchService();
-				key = path.register(service, new Kind[] { StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE }, new Modifier[] {com.sun.nio.file.ExtendedWatchEventModifier.FILE_TREE});
+				key = path.register(service, new Kind[] { StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE }, new Modifier[] {});
 				while (key.isValid()) {
 
 					// スレッドの割り込み = 終了要求を判定する.
