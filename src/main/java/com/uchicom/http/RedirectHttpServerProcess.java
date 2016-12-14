@@ -11,7 +11,8 @@ import com.uchicom.server.ServerProcess;
 
 public class RedirectHttpServerProcess implements ServerProcess {
 
-	private static byte[] responseHader = "HTTP/1.1 302 Found\r\nLocation: ".getBytes();
+//	private static byte[] response302Hader = "HTTP/1.1 302 Found\r\nLocation: ".getBytes();
+	private static byte[] response301Hader = "HTTP/1.1 301 Moved Permanently\r\nLocation: ".getBytes();
     private static byte[] responseFooder = "\r\n\r\n".getBytes();
 	private Parameter parameter;
 	private Socket socket;
@@ -25,12 +26,16 @@ public class RedirectHttpServerProcess implements ServerProcess {
 	@Override
 	public long getLastTime() {
 		// TODO 自動生成されたメソッド・スタブ
-		return 0;
+		return System.currentTimeMillis();
 	}
 
 	@Override
 	public void forceClose() {
-		// TODO 自動生成されたメソッド・スタブ
+		try {
+			socket.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 
 	}
 
@@ -44,7 +49,7 @@ public class RedirectHttpServerProcess implements ServerProcess {
                 String[] heads = head.split(" ");
                 if (heads.length == 3) {
                     //初期応答行を返却する
-                    os.write(responseHader);
+                    os.write(response301Hader);
                     os.write(parameter.get("redirect").getBytes());
                     os.write(heads[1].getBytes());
                     os.write(responseFooder);

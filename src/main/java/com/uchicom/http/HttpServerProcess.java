@@ -27,6 +27,7 @@ public class HttpServerProcess implements ServerProcess {
 	private long lastTime = System.currentTimeMillis();
 	public HttpServerProcess(Parameter parameter, Socket socket) {
 		this.socket = socket;
+		System.out.println("kita:" + socket.getRemoteSocketAddress());
 		router = Context.singleton().getRouter();
 	}
 	@Override
@@ -36,6 +37,7 @@ public class HttpServerProcess implements ServerProcess {
 
 	@Override
 	public void forceClose() {
+		System.out.println("forceClose");
 		if (socket != null) {
 			try {
 				socket.close();
@@ -47,11 +49,13 @@ public class HttpServerProcess implements ServerProcess {
 	}
 	@Override
 	public void execute() {
+		System.out.println("execute");
 		try {
             BufferedReader br = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             OutputStream os = socket.getOutputStream();
             //リクエストの分解、保持
             String head = br.readLine();
+    		System.out.println( socket.getRemoteSocketAddress() +"head:" + head);
             if (head != null) {
                 String[] heads = head.split(" ");
                 if (heads.length == 3) {
@@ -80,8 +84,10 @@ public class HttpServerProcess implements ServerProcess {
                     }
                     TemporalAccessor ifModified = null;
                     String line = br.readLine();
+                    System.out.println( socket.getRemoteSocketAddress() + line);
                     while (line != null && !"".equals(line)) {
                         line = br.readLine();
+                        System.out.println( socket.getRemoteSocketAddress() + line);
                         int index = line.indexOf(":");
                         if (index >= 0) {
 	                        headMap.put(line.substring(0, index), line.substring(index + 2));
@@ -91,6 +97,17 @@ public class HttpServerProcess implements ServerProcess {
                         } else {
                         	headMap.put(line, line);
                         }
+                    }
+                    System.out.println( socket.getRemoteSocketAddress() + "middle:" + line);
+                    if (headMap.containsKey("Content-Length")) {
+                    	int contentLength = Integer.parseInt(headMap.get("Content-Length"));
+                    	char[] cha = new char[contentLength];
+                        int length = 0;
+                        int index = 0;
+                        while ((length = br.read(cha, index, contentLength - index)) > 0) {
+                        	index += length;
+                        }
+                        System.out.println( socket.getRemoteSocketAddress() + "body" + new String(cha) );
                     }
                     // TODO WebFileを継承してBasicWebFileとする
                     if (router.exists(fileName)) {
@@ -128,6 +145,7 @@ public class HttpServerProcess implements ServerProcess {
             if (socket != null) {
                 try {
                     socket.close();
+                    System.out.println("close!");
                 } catch (Exception e) {
                     e.printStackTrace();
                 } finally {

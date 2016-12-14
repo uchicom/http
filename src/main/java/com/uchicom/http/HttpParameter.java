@@ -80,7 +80,7 @@ public class HttpParameter extends Parameter {
 			});
 			break;
 		case "redirect":
-			server = new SingleSocketServer(this, (parameter, socket)->{
+			server = new MultiSocketServer(this, (parameter, socket)->{
 				return new RedirectHttpServerProcess(parameter, socket);
 			});
 			break;
