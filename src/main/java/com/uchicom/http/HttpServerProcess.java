@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -92,7 +93,11 @@ public class HttpServerProcess implements ServerProcess {
                         if (index >= 0) {
 	                        headMap.put(line.substring(0, index), line.substring(index + 2));
 	                        if (line.startsWith("If-Modified-Since:")) {
-	                        	ifModified = Constants.formatter.parse(line.substring(19));
+	                        	try {
+	                        		ifModified = Constants.formatter.parse(line.substring(19));
+	                        	} catch (DateTimeParseException e) {
+	                        		e.printStackTrace();
+	                        	}
 	                        }
                         } else {
                         	headMap.put(line, line);
