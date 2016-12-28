@@ -77,6 +77,10 @@ public class HttpServerProcess implements ServerProcess {
                         }
 
                     }
+                    if (router.isForward(fileName)) {
+                    	router.forward(fileName, heads, br, os);
+                    	return;
+                    }
                     Map<String, String[]> paramMap = null;
                     Map<String, String> headMap = new HashMap<>();
                     if (urls.length > 1) {

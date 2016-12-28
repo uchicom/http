@@ -3,6 +3,7 @@
  */
 package com.uchicom.http;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -29,6 +30,7 @@ public interface Router {
      * @param filePath
      */
     public boolean exists(String filePath);
+    public boolean isForward(String filePath);
     /**
      * リクエストを処理する。
      * 基本的には出力結果をストリームに書き出す。
@@ -39,4 +41,7 @@ public interface Router {
     public void request(String filePath, SocketAddress address, Map<String, String[]> paramMap, Map<String, String> headMap, OutputStream outputStream) throws IOException;
 
     public void error(String code, OutputStream outputStream) throws IOException;
+
+    public void forward(String filePath, String[] heads, BufferedReader reader, OutputStream outputStream) throws IOException;
+
 }

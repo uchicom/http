@@ -3,6 +3,7 @@
  */
 package com.uchicom.http;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -34,6 +35,7 @@ public class DefaultRouter implements Router {
 
 	protected static Map<String, WebFile> fileMap = new ConcurrentHashMap<>();
 	protected static Map<String, Properties> basicMap = new ConcurrentHashMap<>();
+	protected static Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
 	protected static Map<String, File> errorMap = new ConcurrentHashMap<>();
 
 	protected static int htmlFileLength;
@@ -120,6 +122,7 @@ public class DefaultRouter implements Router {
 					return;
 				}
 			}
+			//通常ファイルの場合
 			long len = file.length();
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
@@ -176,10 +179,19 @@ public class DefaultRouter implements Router {
 						properties.load(fis);
 						basicMap.put(relativePath, properties);
 					} catch (FileNotFoundException e) {
-						// TODO 自動生成された catch ブロック
 						e.printStackTrace();
 					} catch (IOException e) {
-						// TODO 自動生成された catch ブロック
+						e.printStackTrace();
+					}
+				} else if (".forward".equals(file.getName())) {
+					String relativePath = file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+					try (FileInputStream fis = new FileInputStream(file)) {
+						Properties properties = new Properties();
+						properties.load(fis);
+						forwardMap.put(relativePath, properties);
+					} catch (FileNotFoundException e) {
+						e.printStackTrace();
+					} catch (IOException e) {
 						e.printStackTrace();
 					}
 				}
@@ -306,5 +318,36 @@ public class DefaultRouter implements Router {
 		});
 		thread.setDaemon(false);
 		thread.start();
+	}
+
+	/* (非 Javadoc)
+	 * @see com.uchicom.http.Router#forward(java.io.BufferedReader, java.io.OutputStream)
+	 */
+	@Override
+	public void forward(String filePath, String[] heads, BufferedReader reader, OutputStream outputStream) throws IOException {
+//		Properties prop = forwardMap.get(filePath.substring(0, filePath.lastIndexOf('/') + 1));
+//		Socket socket = new Socket(prop.getProperty("host"), Integer.parseInt(prop.getProperty("port")));
+//		OutputStream os = socket.getOutputStream();
+//		os.write(heads[0].getBytes());
+//		os.write(" ".getBytes());
+//		os.write(heads[1].getBytes());
+//		os.write(" ".getBytes());
+//		os.write(heads[2].getBytes());
+//		os.write("\r\n".getBytes());
+//		byte[] bytes = new byte[4*1024];
+//		int length = 0;
+//		reader.
+//		while ((length = reader.))
+//		os.write();
+//		socket.close();
+
+	}
+
+	/* (非 Javadoc)
+	 * @see com.uchicom.http.Router#isForward(java.lang.String)
+	 */
+	@Override
+	public boolean isForward(String filePath) {
+		return forwardMap.containsKey(filePath.substring(0, filePath.lastIndexOf('/') + 1));
 	}
 }
