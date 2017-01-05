@@ -337,14 +337,23 @@ public class DefaultRouter implements Router {
 		os.write(heads[2].getBytes());
 		os.write("\r\n".getBytes());
 		String line = reader.readLine();
+		int contentLength = 0;
         while (line != null && !"".equals(line)) {
         	System.out.print("in:");
         	System.out.println(line);
+        	if (line.startsWith("Content-Length: ")) {
+        		contentLength = Integer.parseInt(line.substring(16));
+        	}
 			os.write(line.getBytes());
 			os.write("\r\n".getBytes());
 			line = reader.readLine();
         }
 		os.write("\r\n".getBytes());
+        if (contentLength > 0) {
+        	char[] chars = new char[contentLength];
+        	reader.read(chars);
+        	os.write(new String(chars).getBytes());
+        }
 		os.flush();
         InputStream is = socket.getInputStream();
         byte[] bytes = new byte[4 * 1024];
