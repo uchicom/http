@@ -8,8 +8,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
@@ -325,21 +327,36 @@ public class DefaultRouter implements Router {
 	 */
 	@Override
 	public void forward(String filePath, String[] heads, BufferedReader reader, OutputStream outputStream) throws IOException {
-//		Properties prop = forwardMap.get(filePath.substring(0, filePath.lastIndexOf('/') + 1));
-//		Socket socket = new Socket(prop.getProperty("host"), Integer.parseInt(prop.getProperty("port")));
-//		OutputStream os = socket.getOutputStream();
-//		os.write(heads[0].getBytes());
-//		os.write(" ".getBytes());
-//		os.write(heads[1].getBytes());
-//		os.write(" ".getBytes());
-//		os.write(heads[2].getBytes());
-//		os.write("\r\n".getBytes());
-//		byte[] bytes = new byte[4*1024];
-//		int length = 0;
-//		reader.
-//		while ((length = reader.))
-//		os.write();
-//		socket.close();
+		Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
+		Socket socket = new Socket(prop.getProperty("host"), Integer.parseInt(prop.getProperty("port")));
+		OutputStream os = socket.getOutputStream();
+		os.write(heads[0].getBytes());
+		os.write(" ".getBytes());
+		os.write(heads[1].getBytes());
+		os.write(" ".getBytes());
+		os.write(heads[2].getBytes());
+		os.write("\r\n".getBytes());
+		String line = reader.readLine();
+        while (line != null && !"".equals(line)) {
+        	System.out.print("in:");
+        	System.out.println(line);
+			os.write(line.getBytes());
+			os.write("\r\n".getBytes());
+			line = reader.readLine();
+        }
+		os.write("\r\n".getBytes());
+		os.flush();
+        InputStream is = socket.getInputStream();
+        byte[] bytes = new byte[4 * 1024];
+        int length = 0;
+        while ((length = is.read(bytes)) > 0) {
+        	System.out.print("out:");
+        	System.out.println(new String(bytes, 0, length));
+        	outputStream.write(bytes, 0, length);
+            outputStream.flush();
+        }
+        System.out.println("sock.close");
+		socket.close();
 
 	}
 
@@ -348,6 +365,6 @@ public class DefaultRouter implements Router {
 	 */
 	@Override
 	public boolean isForward(String filePath) {
-		return forwardMap.containsKey(filePath.substring(0, filePath.lastIndexOf('/') + 1));
+		return forwardMap.containsKey(filePath.substring(0, filePath.indexOf('/', 1) + 1));
 	}
 }
