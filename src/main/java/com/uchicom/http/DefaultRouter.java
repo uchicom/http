@@ -339,8 +339,6 @@ public class DefaultRouter implements Router {
 		String line = reader.readLine();
 		int contentLength = 0;
         while (line != null && !"".equals(line)) {
-        	System.out.print("in:");
-        	System.out.println(line);
         	if (line.startsWith("Content-Length: ")) {
         		contentLength = Integer.parseInt(line.substring(16));
         	}
@@ -359,8 +357,6 @@ public class DefaultRouter implements Router {
         byte[] bytes = new byte[4 * 1024];
         int length = 0;
         while ((length = is.read(bytes)) > 0) {
-        	System.out.print("out:");
-        	System.out.println(new String(bytes, 0, length));
         	outputStream.write(bytes, 0, length);
             outputStream.flush();
         }
