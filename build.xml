@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project basedir="." default="build" name="http">
+	<property environment="env" />
+	<property name="ECLIPSE_HOME" value="../../eclipse/" />
+	<property name="server.location" value="../server" />
+	<property name="debuglevel" value="source,lines,vars" />
+	<property name="target" value="1.8" />
+	<property name="source" value="1.8" />
+	<property name="dir.buildfile" value="." />
+	<property name="dir.workspace" value="${dir.buildfile}/.." />
+	<property name="dir.jarfile" value="${dir.buildfile}/build" />
+	<path id="server.classpath">
+		<pathelement location="${server.location}/bin" />
+	</path>
+	<path id="http.classpath">
+		<pathelement location="bin" />
+		<path refid="server.classpath" />
+	</path>
+	<target name="init">
+		<mkdir dir="bin" />
+		<copy includeemptydirs="false" todir="bin">
+			<fileset dir="src/main/java">
+				<exclude name="**/*.launch" />
+				<exclude name="**/*.java" />
+			</fileset>
+		</copy>
+	</target>
+	<target name="clean">
+		<delete dir="bin" />
+	</target>
+	<target depends="clean" name="cleanall">
+		<ant antfile="build.xml" dir="${server.location}" inheritAll="false" target="clean" />
+	</target>
+	<target depends="build-subprojects,build-project" name="build">
+		<mkdir dir="${dir.buildfile}" />
+		<jar destfile="${dir.jarfile}/http.jar" filesetmanifest="mergewithoutmain">
+			<manifest>
+				<attribute name="Main-Class" value="com.uchicom.http.Main" />
+				<attribute name="Class-Path" value="." />
+			</manifest>
+			<fileset dir="${dir.buildfile}/bin" />
+			<fileset dir="${dir.workspace}/server/bin" />
+		</jar>
+	</target>
+	<target name="build-subprojects">
+		<ant antfile="build.xml" dir="${server.location}" inheritAll="false" target="build-project">
+			<propertyset>
+				<propertyref name="build.compiler" />
+			</propertyset>
+		</ant>
+	</target>
+	<target depends="init" name="build-project">
+		<echo message="${ant.project.name}: ${ant.file}" />
+		<javac debug="true" debuglevel="${debuglevel}" destdir="bin" includeantruntime="false" source="${source}" target="${target}">
+			<src path="src/main/java" />
+			<classpath refid="http.classpath" />
+		</javac>
+	</target>
+	<target description="Build all projects which reference this project. Useful to propagate changes." name="build-refprojects" />
+	<target description="copy Eclipse compiler jars to ant lib directory" name="init-eclipse-compiler">
+		<copy todir="${ant.library.dir}">
+			<fileset dir="${ECLIPSE_HOME}/plugins" includes="org.eclipse.jdt.core_*.jar" />
+		</copy>
+		<unzip dest="${ant.library.dir}">
+			<patternset includes="jdtCompilerAdapter.jar" />
+			<fileset dir="${ECLIPSE_HOME}/plugins" includes="org.eclipse.jdt.core_*.jar" />
+		</unzip>
+	</target>
+	<target description="compile project with Eclipse compiler" name="build-eclipse-compiler">
+		<property name="build.compiler" value="org.eclipse.jdt.core.JDTCompilerAdapter" />
+		<antcall target="build" />
+	</target>
+	<target name="http">
+		<java classname="com.uchicom.http.Main" failonerror="true" fork="yes">
+			<arg line="-dir C:\Users\shigeki\Dropbox\uchicom\work\uchicom.com -type multi" />
+			<classpath refid="http.classpath" />
+		</java>
+	</target>
+</project>
