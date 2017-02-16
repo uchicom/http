@@ -13,7 +13,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
@@ -24,10 +24,10 @@ import java.nio.file.WatchService;
 import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
  * @author Uchiyama Shigeki
@@ -62,7 +62,9 @@ public class DefaultRouter implements Router {
 		return file.getLastModified().equals(ifModified);
 	}
 
-	/* (non-Javadoc)
+	/*
+	 * (non-Javadoc)
+	 *
 	 * @see com.uchicom.server.http.Router#exists(java.lang.String)
 	 */
 	@Override
@@ -73,23 +75,20 @@ public class DefaultRouter implements Router {
 	/*
 	 * (non-Javadoc)
 	 *
-	 * @see com.uchicom.server.http.Router#request(java.lang.String, java.util.Map,
-	 * java.io.OutputStream)
+	 * @see com.uchicom.server.http.Router#request(java.lang.String,
+	 * java.util.Map, java.io.OutputStream)
 	 */
 	@Override
-	public void request(String fileName,
-			SocketAddress address,
-			Map<String, String[]> paramMap,
-			Map<String, String> headMap,
-			OutputStream outputStream) throws IOException {
+	public void request(String fileName, SocketAddress address, Map<String, String[]> paramMap,
+			Map<String, String> headMap, OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
 			WebFile file = fileMap.get(fileName);
 			if (basicMap.containsKey(fileName.substring(0, fileName.lastIndexOf('/') + 1))) {
 				boolean auth = false;
-				//ベーシック認証チェック用
+				// ベーシック認証チェック用
 				if (headMap.containsKey("Authorization")) {
-					//ベーシック認証処理
+					// ベーシック認証処理
 					String authorization = headMap.get("Authorization");
 					int typeIndex = authorization.indexOf(' ');
 					String type = authorization.substring(0, typeIndex);
@@ -99,18 +98,19 @@ public class DefaultRouter implements Router {
 						try {
 							String decoded = new String(Base64.getDecoder().decode(encoded));
 							int index = decoded.indexOf(":");
-							//認証結果
+							// 認証結果
 							Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
 							if (prop.containsKey(decoded.substring(0, index))) {
-								auth = decoded.substring(index + 1).equals(prop.getProperty(decoded.substring(0, index)));
+								auth = decoded.substring(index + 1)
+										.equals(prop.getProperty(decoded.substring(0, index)));
 							}
 						} catch (Exception e) {
-			                error("400", outputStream);
+							error("400", outputStream);
 						}
 					}
 				}
 				if (!auth) {
-					//認証エラー
+					// 認証エラー
 					ps.print("HTTP/1.1 401 Authorization Required\r\n");
 					ps.print("Date: ");
 					ps.print(Constants.formatter.format(OffsetDateTime.now()));
@@ -124,7 +124,7 @@ public class DefaultRouter implements Router {
 					return;
 				}
 			}
-			//通常ファイルの場合
+			// 通常ファイルの場合
 			long len = file.length();
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
@@ -172,10 +172,10 @@ public class DefaultRouter implements Router {
 	public static void createMap(File file) {
 		if (file.isFile()) {
 			if (file.getName().startsWith(".")) {
-				//隠しファイルは表示しない
+				// 隠しファイルは表示しない
 				if (".basic".equals(file.getName())) {
 					String relativePath = file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
-					//Basicファイル認証がある場合
+					// Basicファイル認証がある場合
 					try (FileInputStream fis = new FileInputStream(file)) {
 						Properties properties = new Properties();
 						properties.load(fis);
@@ -221,12 +221,14 @@ public class DefaultRouter implements Router {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see com.uchicom.server.http.Router#error(java.lang.String, java.io.OutputStream)
+	/*
+	 * (non-Javadoc)
+	 *
+	 * @see com.uchicom.server.http.Router#error(java.lang.String,
+	 * java.io.OutputStream)
 	 */
 	@Override
-	public void error(String code, OutputStream outputStream)
-			throws IOException {
+	public void error(String code, OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
 			ps.print("HTTP/1.1 ");
@@ -262,54 +264,52 @@ public class DefaultRouter implements Router {
 
 	}
 
+	Map<WatchKey, Path> pathMap = new HashMap<>();
+
 	/**
 	 *
 	 * @param baseFile
 	 */
 	private void watch(File baseFile) {
-		Thread thread = new Thread(()-> {
+		Thread thread = new Thread(() -> {
 			WatchKey key = null;
 			try {
-				Path path = new File(baseFile, "html").toPath();
-				FileSystem fileSystem = path.getFileSystem();
-				WatchService service = fileSystem.newWatchService();
-				key = path.register(service, new Kind[] { StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE }, new Modifier[] {});
-				while (key.isValid()) {
+				WatchService service = FileSystems.getDefault().newWatchService();
+				File htmlFile = new File(baseFile, "html");
+				regist(service, htmlFile);
+				while ((key = service.take()) != null) {
 
-					// スレッドの割り込み = 終了要求を判定する.
+					// スレッドの割り込み = 終了要求を判定する. 必要なのか不明
 					if (Thread.currentThread().isInterrupted()) {
 						throw new InterruptedException();
 					}
-
-					WatchKey detecedtWatchKey = service.poll(1000, TimeUnit.MILLISECONDS);
-					if (detecedtWatchKey == null) {
-						// タイムアウト
+					if (!key.isValid())
 						continue;
-					}
-					if (detecedtWatchKey.equals(key)) {
-						for (WatchEvent<?> event : detecedtWatchKey.pollEvents()) {
-							Path file = (Path) event.context();
-
-							File htmlFile = new File(baseFile, "html");
-							String value = file.toString().replaceAll("\\\\", "/");
-							String relativePath = "/" + value;
-							if (StandardWatchEventKinds.ENTRY_CREATE.equals(event.kind())) {
-								if (!fileMap.containsKey(relativePath)) {
-									fileMap.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
-								}
-							} else if (StandardWatchEventKinds.ENTRY_DELETE.equals(event.kind())) {
-								if (fileMap.containsKey(relativePath)) {
-									fileMap.remove(relativePath);
-								}
-							} else if (StandardWatchEventKinds.ENTRY_MODIFY.equals(event.kind())) {
-								if (fileMap.containsKey(relativePath)) {
-									fileMap.put(relativePath, new WebFile(new File(htmlFile, file.toString())));
-								}
+					for (WatchEvent<?> event : key.pollEvents()) {
+						//eventではファイル名しかとれない
+						Path file = (Path) event.context();
+						//監視対象のフォルダを取得する必要がある
+						Path real = pathMap.get(key).resolve(file);
+						String cpath = real.toFile().getCanonicalPath();
+						String bpath = htmlFile.getCanonicalPath();
+						String absPath = cpath.substring(bpath.length()).replace('\\', '/');
+						if (StandardWatchEventKinds.ENTRY_CREATE.equals(event.kind())) {
+							regist(service, real.toFile());
+							if (!fileMap.containsKey(absPath)) {
+								fileMap.put(absPath, new WebFile(real.toFile()));
+							}
+						} else if (StandardWatchEventKinds.ENTRY_DELETE.equals(event.kind())) {
+							// 削除時はcancel不要の認識
+							if (fileMap.containsKey(absPath)) {
+								fileMap.remove(absPath);
+							}
+						} else if (StandardWatchEventKinds.ENTRY_MODIFY.equals(event.kind())) {
+							if (fileMap.containsKey(absPath)) {
+								fileMap.put(absPath, new WebFile(real.toFile()));
 							}
 						}
-
 					}
-					detecedtWatchKey.reset();
+					key.reset();
 				}
 			} catch (IOException e) {
 				e.printStackTrace();
@@ -318,15 +318,40 @@ public class DefaultRouter implements Router {
 				key.cancel();
 			}
 		});
-		thread.setDaemon(false);
+		thread.setDaemon(false); //mainスレッドと運命を共に
 		thread.start();
 	}
 
-	/* (非 Javadoc)
-	 * @see com.uchicom.http.Router#forward(java.io.BufferedReader, java.io.OutputStream)
+	/**
+	 *  監視サービスにフォルダを再起呼び出しして登録する
+	 * @param service
+	 * @param file
+	 * @throws IOException
+	 */
+	public void regist(WatchService service, File file) throws IOException {
+		if (file.isDirectory()) {
+			Path path = file.toPath();
+			pathMap.put(
+					path.register(
+							service, new Kind[] { StandardWatchEventKinds.ENTRY_CREATE,
+									StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE },
+							new Modifier[] {}),
+					path);
+			for (File child : file.listFiles()) {
+				regist(service, child);
+			}
+		}
+	}
+
+	/*
+	 * (非 Javadoc)
+	 *
+	 * @see com.uchicom.http.Router#forward(java.io.BufferedReader,
+	 * java.io.OutputStream)
 	 */
 	@Override
-	public void forward(String filePath, String[] heads, BufferedReader reader, OutputStream outputStream) throws IOException {
+	public void forward(String filePath, String[] heads, BufferedReader reader, OutputStream outputStream)
+			throws IOException {
 		Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
 		Socket socket = new Socket(prop.getProperty("host"), Integer.parseInt(prop.getProperty("port")));
 		OutputStream os = socket.getOutputStream();
@@ -338,34 +363,36 @@ public class DefaultRouter implements Router {
 		os.write("\r\n".getBytes());
 		String line = reader.readLine();
 		int contentLength = 0;
-        while (line != null && !"".equals(line)) {
-        	if (line.startsWith("Content-Length: ")) {
-        		contentLength = Integer.parseInt(line.substring(16));
-        	}
+		while (line != null && !"".equals(line)) {
+			if (line.startsWith("Content-Length: ")) {
+				contentLength = Integer.parseInt(line.substring(16));
+			}
 			os.write(line.getBytes());
 			os.write("\r\n".getBytes());
 			line = reader.readLine();
-        }
+		}
 		os.write("\r\n".getBytes());
-        if (contentLength > 0) {
-        	char[] chars = new char[contentLength];
-        	reader.read(chars);
-        	os.write(new String(chars).getBytes());
-        }
+		if (contentLength > 0) {
+			char[] chars = new char[contentLength];
+			reader.read(chars);
+			os.write(new String(chars).getBytes());
+		}
 		os.flush();
-        InputStream is = socket.getInputStream();
-        byte[] bytes = new byte[4 * 1024];
-        int length = 0;
-        while ((length = is.read(bytes)) > 0) {
-        	outputStream.write(bytes, 0, length);
-            outputStream.flush();
-        }
-        System.out.println("sock.close");
+		InputStream is = socket.getInputStream();
+		byte[] bytes = new byte[4 * 1024];
+		int length = 0;
+		while ((length = is.read(bytes)) > 0) {
+			outputStream.write(bytes, 0, length);
+			outputStream.flush();
+		}
+		System.out.println("sock.close");
 		socket.close();
 
 	}
 
-	/* (非 Javadoc)
+	/*
+	 * (非 Javadoc)
+	 *
 	 * @see com.uchicom.http.Router#isForward(java.lang.String)
 	 */
 	@Override
