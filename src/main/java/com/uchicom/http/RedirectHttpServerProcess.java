@@ -25,7 +25,6 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
 	@Override
 	public long getLastTime() {
-		// TODO 自動生成されたメソッド・スタブ
 		return System.currentTimeMillis();
 	}
 

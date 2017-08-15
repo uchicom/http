@@ -84,6 +84,11 @@ public class HttpParameter extends Parameter {
 				return new RedirectHttpServerProcess(parameter, socket);
 			});
 			break;
+		case "proxy":
+			server = new MultiSocketServer(this, (parameter, socket)->{
+				return new ProxyHttpServerProcess(parameter, socket);
+			});
+			break;
 		}
     	return server;
     }

@@ -28,7 +28,6 @@ public class HttpServerProcess implements ServerProcess {
 	private long lastTime = System.currentTimeMillis();
 	public HttpServerProcess(Parameter parameter, Socket socket) {
 		this.socket = socket;
-		System.out.println("kita:" + socket.getRemoteSocketAddress());
 		router = Context.singleton().getRouter();
 	}
 	@Override
