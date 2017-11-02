@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.RandomAccessFile;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.file.FileSystems;
@@ -23,8 +24,10 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAccessor;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -79,8 +82,11 @@ public class DefaultRouter implements Router {
 	 * java.util.Map, java.io.OutputStream)
 	 */
 	@Override
-	public void request(String fileName, SocketAddress address, Map<String, String[]> paramMap,
-			Map<String, String> headMap, OutputStream outputStream) throws IOException {
+	public void request(String fileName,
+			SocketAddress address,
+			Map<String, String[]> paramMap,
+			Map<String, String> headMap,
+			OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
 			WebFile file = fileMap.get(fileName);
@@ -115,7 +121,7 @@ public class DefaultRouter implements Router {
 					ps.print("Date: ");
 					ps.print(Constants.formatter.format(OffsetDateTime.now()));
 					ps.print("\r\n");
-					ps.print("Server: uchicom-http\r\n");
+					ps.print("Server: http\r\n");
 					ps.print("WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n");
 					ps.print("Connection: close\r\n");
 					ps.print("Transfer-Encoding: chunked\r\n");
@@ -126,14 +132,52 @@ public class DefaultRouter implements Router {
 			}
 			// 通常ファイルの場合
 			long len = file.length();
-			ps.print("HTTP/1.1 200 OK \r\n");
+			boolean isRange = headMap.containsKey("Range");
+			boolean isError = false;
+			List<String[]> rengeList = null;
+			if (isRange) {
+				rengeList = new ArrayList<>();
+				String range = headMap.get("Range");
+				String index = range.substring(range.indexOf("bytes=") + 6);
+				String[] splits = index.split(",");
+				for (String split : splits) {
+					String[] startEnd = split.split("-");
+					if ("".equals(startEnd[0])) {
+						//後ろから
+						if (len < Long.parseLong(startEnd[1])) {
+							//指定範囲エラー
+							ps.print("HTTP/1.1 416 Range Not Satisfiable");
+							isError = true;
+						} else {
+							rengeList.add(startEnd);
+							ps.print("HTTP/1.1 206 Partial Content");
+						}
+					} else {
+						//前から
+						long start = Long.parseLong(startEnd[0]);
+						long end = Long.parseLong(startEnd[1]);
+						if (len <= start ||
+								len <= end ||
+								start > end) {
+							//指定範囲エラー
+							ps.print("HTTP/1.1 416 Range Not Satisfiable");
+							isError = true;
+						} else {
+							rengeList.add(startEnd);
+							ps.print("HTTP/1.1 206 Partial Content");
+						}
+					}
+				}
+			} else {
+				ps.print("HTTP/1.1 200 OK \r\n");
+			}
 			ps.print("Date: ");
 			ps.print(Constants.formatter.format(OffsetDateTime.now()));
 			ps.print("\r\n");
-			ps.print("Server: uchicom-http\r\n");
-			ps.print("Accept-Ranges: none\r\n");
+			ps.print("Server: http\r\n");
+			ps.print("Accept-Ranges: bytes\r\n");
 			ps.print("Connection: close\r\n");
-			if (len != 0) {
+			if (isError == false && len != 0) {
 				ps.print("Content-Length: ");
 				ps.print(String.valueOf(len));
 				ps.print("\r\n");
@@ -153,14 +197,41 @@ public class DefaultRouter implements Router {
 			} else {
 				bytes = new byte[64 * 1024];
 			}
-
-			try (FileInputStream fis = new FileInputStream(file.getFile());) {
-				int length = 0;
-				while ((length = fis.read(bytes)) > 0) {
-					ps.write(bytes, 0, length);
+			if (!isError) {
+				if (isRange) {
+					try (RandomAccessFile raf = new RandomAccessFile(file.getFile(), "r");) {
+						for (String[] startEnd : rengeList) {
+							long end = Long.parseLong(startEnd[1]);
+							if ("".equals(startEnd[0])) {
+								//TODO 未実装
+							} else {
+								long start = Long.parseLong(startEnd[0]);
+								raf.seek(start);
+								long getLength = end - start + 1;
+								int length = 0;
+								int totalLength = 0;
+								while (totalLength < getLength) {
+									int byteLength = bytes.length;
+									if (getLength - totalLength < byteLength) {
+										byteLength = (int)(getLength - totalLength);
+									}
+									length = raf.read(bytes, 0, byteLength);
+									totalLength += length;
+									ps.write(bytes, 0, length);
+								}
+							}
+						}
+					}
+				} else {
+					try (FileInputStream fis = new FileInputStream(file.getFile());) {
+						int length = 0;
+						while ((length = fis.read(bytes)) > 0) {
+							ps.write(bytes, 0, length);
+						}
+					}
+				ps.flush();
 				}
 			}
-			ps.flush();
 		}
 	}
 
@@ -323,7 +394,8 @@ public class DefaultRouter implements Router {
 	}
 
 	/**
-	 *  監視サービスにフォルダを再起呼び出しして登録する
+	 * 監視サービスにフォルダを再起呼び出しして登録する
+	 * 
 	 * @param service
 	 * @param file
 	 * @throws IOException
@@ -333,7 +405,8 @@ public class DefaultRouter implements Router {
 			Path path = file.toPath();
 			pathMap.put(
 					path.register(
-							service, new Kind[] { StandardWatchEventKinds.ENTRY_CREATE,
+							service,
+							new Kind[] { StandardWatchEventKinds.ENTRY_CREATE,
 									StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_DELETE },
 							new Modifier[] {}),
 					path);
