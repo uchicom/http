@@ -131,7 +131,7 @@ public class DefaultRouter implements Router {
 			ps.print(Constants.formatter.format(OffsetDateTime.now()));
 			ps.print("\r\n");
 			ps.print("Server: uchicom-http\r\n");
-			ps.print("Accept-Ranges: bytes\r\n");
+			ps.print("Accept-Ranges: none\r\n");
 			ps.print("Connection: close\r\n");
 			if (len != 0) {
 				ps.print("Content-Length: ");
