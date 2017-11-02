@@ -29,6 +29,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.uchicom.jsong.Jsong;
+
 /**
  * @author Uchiyama Shigeki
  *
@@ -126,12 +128,25 @@ public class DefaultRouter implements Router {
 			}
 			// 通常ファイルの場合
 			long len = file.length();
+			byte[] bytes = null;
+			if (file.getFile().getName().endsWith(".jsong")) {
+				try {
+					Jsong jsong = new Jsong(file.getFile());
+					String value = jsong.generate(paramMap.get("c")[0]);
+					System.out.println(value);
+					bytes = value.getBytes("utf-8");
+					len = bytes.length;
+				} catch (Exception e) {
+					// TODO 自動生成された catch ブロック
+					e.printStackTrace();
+				}
+			}
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
 			ps.print(Constants.formatter.format(OffsetDateTime.now()));
 			ps.print("\r\n");
 			ps.print("Server: uchicom-http\r\n");
-			ps.print("Accept-Ranges: bytes\r\n");
+			ps.print("Accept-Ranges: none\r\n");
 			ps.print("Connection: close\r\n");
 			if (len != 0) {
 				ps.print("Content-Length: ");
@@ -147,17 +162,26 @@ public class DefaultRouter implements Router {
 			ps.print("Expires: ");
 			ps.print(Constants.formatter.format(file.getLastModified().plusDays(1)));
 			ps.print("\r\n\r\n");
-			byte[] bytes = null;
-			if ("text/html".equals(file.getContentType())) {
-				bytes = new byte[2 * 1024];
-			} else {
-				bytes = new byte[64 * 1024];
-			}
 
-			try (FileInputStream fis = new FileInputStream(file.getFile());) {
-				int length = 0;
-				while ((length = fis.read(bytes)) > 0) {
-					ps.write(bytes, 0, length);
+
+			if (file.getFile().getName().endsWith(".jsong")) {
+				try {
+					ps.write(bytes,0, bytes.length);
+				} catch (Exception e) {
+					// TODO 自動生成された catch ブロック
+					e.printStackTrace();
+				}
+			} else {
+				if ("text/html".equals(file.getContentType())) {
+					bytes = new byte[2 * 1024];
+				} else {
+					bytes = new byte[64 * 1024];
+				}
+				try (FileInputStream fis = new FileInputStream(file.getFile());) {
+					int length = 0;
+					while ((length = fis.read(bytes)) > 0) {
+						ps.write(bytes, 0, length);
+					}
 				}
 			}
 			ps.flush();
