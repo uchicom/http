@@ -25,7 +25,7 @@ public class IOThrougher implements Runnable {
 	@Override
 	public void run() {
 		int length = 0;
-		byte[] bytes = new byte[4 * 1024 * 1024];
+		byte[] bytes = new byte[4 * 1024 * 100];
 		try {
 			while ((length = is.read(bytes)) > 0) {
 				os.write(bytes, 0, length);
