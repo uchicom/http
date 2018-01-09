@@ -6,8 +6,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 
-import com.uchicom.server.Parameter;
 import com.uchicom.server.ServerProcess;
+import com.uchicom.util.Parameter;
 
 /**
  * @author uchicom: Shigeki Uchiyama
@@ -115,7 +115,7 @@ public class ProxyHttpServerProcess implements ServerProcess {
 								System.out.println(splits[i].replace("Proxy-", ""));
 								sos.write((splits[i].replace("Proxy-", "") + "\r\n").getBytes());
 							} else {
-								System.out.println(splits[i] );
+								System.out.println(splits[i]);
 								sos.write((splits[i] + "\r\n").getBytes());
 							}
 						}
