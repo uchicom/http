@@ -4,7 +4,10 @@
 package com.uchicom.http;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -16,9 +19,15 @@ import java.util.Properties;
  */
 public class WebFile {
 
-	private File file = null;
+	private File file;
 	private OffsetDateTime lastModified;
 	public static Properties mimeProperties;
+	private long lastModifiedTime;
+	
+	private Properties basic;
+	
+	private byte[] cache;
+	
 	static {
 		mimeProperties = new Properties();
 		try {
@@ -70,6 +79,7 @@ public class WebFile {
             contentType = "text/plain";
 		}
 		lastModified = OffsetDateTime.ofInstant(Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
+		lastModifiedTime = file.lastModified();
 	}
 
 
@@ -81,5 +91,29 @@ public class WebFile {
 		return lastModified;
 	}
 
+	public void write(PrintStream ps) throws FileNotFoundException, IOException {
+		if (cache == null || file.lastModified() != lastModifiedTime) {
+			synchronized(this) {
+				byte[] cache = new byte[(int)file.length()];
+				try (FileInputStream fis = new FileInputStream(file);) {
+					int length = 0;
+					int index = 0;
+					while ((length = fis.read(cache)) > 0) {
+						ps.write(cache, index, length);
+						index += length;
+					}
+				}
+				this.cache = cache;
+			}
+		}
+		ps.write(cache);
+	}
+	
+	public boolean isBasic() {
+		return basic != null;
+	}
+	public void setBasic(Properties basic) {
+		this.basic = basic;
+	}
 
 }

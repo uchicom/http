@@ -7,8 +7,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.SocketAddress;
 import java.time.temporal.TemporalAccessor;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,7 +38,7 @@ public interface Router {
      * @param paramMap
      * @param outputStream
      */
-    public void request(String filePath, SocketAddress address, Map<String, String[]> paramMap, Map<String, String> headMap, OutputStream outputStream) throws IOException;
+    public void request(String filePath, Map<String, List<String>> paramMap, Map<String, String> headMap, OutputStream outputStream) throws IOException;
 
     public void error(String code, OutputStream outputStream) throws IOException;
 

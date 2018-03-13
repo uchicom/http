@@ -61,22 +61,22 @@ public class HttpParameter extends Parameter {
 		switch (get("type")) {
 		case "multi":
 			server = new MultiSocketServer(this, (parameter, socket)->{
-				return new HttpServerProcess(parameter, socket);
+				return new HttpProcess(parameter, socket);
 			});
 			break;
 		case "pool":
 			server = new PoolSocketServer(this, (parameter, socket)->{
-				return new HttpServerProcess(parameter, socket);
+				return new HttpProcess(parameter, socket);
 			});
 			break;
 		case "single":
 			server = new SingleSocketServer(this, (parameter, socket)->{
-				return new HttpServerProcess(parameter, socket);
+				return new HttpProcess(parameter, socket);
 			});
 			break;
 		case "selector":
 			server = new SelectorServer(this, ()->{
-				return new HttpHandler();
+				return new HttpHandler(this);
 			});
 			break;
 		case "redirect":

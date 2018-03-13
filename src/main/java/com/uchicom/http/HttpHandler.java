@@ -3,17 +3,21 @@
  */
 package com.uchicom.http;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAccessor;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import com.uchicom.server.Handler;
-
+import com.uchicom.util.Parameter;
 
 /**
  * @author uchicom: Shigeki Uchiyama
@@ -21,102 +25,155 @@ import com.uchicom.server.Handler;
  */
 public class HttpHandler implements Handler {
 
-    ByteBuffer readBuff = ByteBuffer.allocate(1014);
-    ByteBuffer writeBuff = ByteBuffer.allocate(256);
-    File file = null;
-    StringBuffer strBuff = new StringBuffer();
+	ByteBuffer readBuff = ByteBuffer.allocate(1024);
+	ByteBuffer writeBuff = ByteBuffer.allocate(1024);
+	String fileName = null;
+	StringBuffer strBuff = new StringBuffer();
 
-    /* (non-Javadoc)
-     * @see com.uchicom.http.Handler#handle(java.nio.channels.SelectionKey)
-     */
-    @Override
-    public void handle(SelectionKey key) throws IOException {
-    	SocketChannel channel = (SocketChannel) key.channel();
-        if (key.isReadable()) {
-            int length = channel.read(readBuff);
-            if (length > 0) {
-                readBuff.flip();
-                file = request(new String(readBuff.array()));
-            }
-            readBuff.clear();
-            key.interestOps(SelectionKey.OP_WRITE);
-        }
+	protected static Router router;
 
-        if (key.isWritable()) {
+	TemporalAccessor ifModified;
 
-            ByteBuffer buff = null;
-//            if (map.containsKey(file)) {
-//                buff = map.get(file);
-//            } else {
-                buff = response(channel, file).asReadOnlyBuffer();
-//                map.put(file, buff);
-//            }
+	Map<String, List<String>> paramMap = null;
+	Map<String, String> headMap = new HashMap<>();
+	public HttpHandler(Parameter parameter) {
+		router = Context.singleton().getRouter();
+	}
 
-            try {
-                buff.position(0);
-                channel.write(buff);
-            } catch (IOException e) {
-                System.err.println(channel.socket().getInetAddress());
-                e.printStackTrace();
-            }
-            strBuff.setLength(0);
-            readBuff.clear();
-            key.cancel();
-        }
-    }
+	/* (non-Javadoc)
+	 * @see com.uchicom.http.Handler#handle(java.nio.channels.SelectionKey)
+	 */
+	@Override
+	public void handle(SelectionKey key) throws IOException {
+		SocketChannel channel = (SocketChannel) key.channel();
+		if (key.isReadable()) {
+			int length = channel.read(readBuff);
+			if (length > 0) {
+				readBuff.flip();
+				fileName = request(new String(readBuff.array()));
+			}
+			readBuff.clear();
+			key.interestOps(SelectionKey.OP_WRITE);
+		}
 
-    public File request(String request) {
-        String[] lines = request.split("\r\n");
-        String[] heads = lines[0].split(" ");
-        File file = null;
-        if ("/".equals(heads[1])) {
-            file = new File("html", "index.htm");
-        } else {
-            file = new File("html", heads[1].substring(1));
-        }
-        return file;
-    }
+		if (key.isWritable()) {
 
-    public ByteBuffer response(SocketChannel channel, File file) {
+			ByteBuffer buff = null;
+			buff = response(channel, fileName).asReadOnlyBuffer();
 
-        if (file == null || !file.exists() || !file.isFile()) {
-            strBuff.append("HTTP/1.1 404 ERR \r\n");
-            strBuff.append("Date: ");
-            strBuff.append(Constants.formatter.format(OffsetDateTime.now()));
-            strBuff.append("\r\n");
-            strBuff.append("Server: non\r\n");
-            strBuff.append("Accept-Ranges: bytes\r\n");
-            strBuff.append("Connection: close\r\n");
-            strBuff.append("Content-Length: 69\r\n");
-            strBuff.append("Content-Type: text/html\r\n\r\n");
-            strBuff.append("<html><head>404ERROR</head><body><h1>404 Not Found</h1></body></html>");
-        } else {
-            strBuff.append("HTTP/1.1 200 OK \r\n");
-            strBuff.append("Date: ");
-            strBuff.append(Constants.formatter.format(OffsetDateTime.now()));
-            strBuff.append("\r\n");
-            strBuff.append("Server: non\r\n");
-            strBuff.append("Accept-Ranges: bytes\r\n");
-            strBuff.append("Connection: close\r\n");
-            if (file.length() != 0) {
-                strBuff.append("Content-Length: ");
-                strBuff.append(String.valueOf(file.length()));
-                strBuff.append("\r\n");
-            }
-            strBuff.append("Content-Type: text/html\r\n\r\n");
-            try (FileInputStream fis = new FileInputStream(file);) {
-                byte[] bytes = new byte[1024];
-                while (fis.read(bytes) > 0) {
-                    strBuff.append(new String(bytes));
-                }
+			try {
+				buff.position(0);
+				channel.write(buff);
+			} catch (IOException e) {
+				System.err.println(channel.socket().getInetAddress());
+				e.printStackTrace();
+			}
+			strBuff.setLength(0);
+			readBuff.clear();
+			key.cancel();
+		}
+	}
 
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-        return ByteBuffer.wrap(strBuff.toString().getBytes());
-    }
+	public String head(String head) throws IOException {
+
+		String fileName = "";
+		String[] heads = head.split(" ");
+		if (heads.length == 3) {
+			//初期応答行を返却する
+			String[] urls = heads[1].split("\\?");
+			if (urls[0].endsWith("/")) {
+				if (urls[0].startsWith("/")) {
+					fileName = urls[0] + "index.htm";
+				} else {
+					fileName = "/" + urls[0] + "index.htm";
+				}
+			} else {
+				if (urls[0].startsWith("/")) {
+					fileName = urls[0];
+				} else {
+					fileName = "/" + urls[0];
+				}
+
+			}
+			//			if (router.isForward(fileName)) {
+			//				router.forward(fileName, heads, br, os);
+			//				return;
+			//			}
+			if (urls.length > 1) {
+				//GETパラメータありなので解析。
+				paramMap = createGetParamMap(urls[1]);
+			}
+		}
+		return fileName;
+	}
+
+	public Map<String, List<String>> createGetParamMap(String get) {
+		String[] keyValues;
+		try {
+			keyValues = URLDecoder.decode(get, "utf-8").split("&");
+		} catch (Exception e) {
+			e.printStackTrace();
+			keyValues = get.split("&");
+		}
+		Map<String, List<String>> map = new HashMap<String, List<String>>();
+		for (String keyValue : keyValues) {
+			String[] split = keyValue.split("=");
+			if (split.length > 1) {
+				if (map.containsKey(split[0])) {
+					List<String> list = map.get(split[0]);
+					list.add(split[1]);
+				} else {
+					List<String> list = new ArrayList<String>();
+					list.add(split[1]);
+					map.put(split[0], list);
+				}
+			}
+		}
+		return map;
+	}
+
+	public String request(String request) throws IOException {
+		int rnIndex = request.indexOf("\r\n");
+		String head = request.substring(0, rnIndex);
+		String fileName = head(head);
+
+//		System.out.println("head:" + head);
+		String head2 = request.substring(rnIndex + 2);
+		String[] heads2 = head2.split("\r\n");
+		for (String line : heads2) {
+			int index = line.indexOf(":");
+			if (index >= 0) {
+				headMap.put(line.substring(0, index), line.substring(index + 2));
+				if (line.startsWith("If-Modified-Since:")) {
+					try {
+						ifModified = Constants.formatter.parse(line.substring(19));
+					} catch (DateTimeParseException e) {
+						e.printStackTrace();
+					}
+				}
+			} else {
+				headMap.put(line, line);
+			}
+		}
+		return fileName;
+	}
+
+	/**
+	 * channel と bytebufferを引き回したほうが早いかも.
+	 * @param channel
+	 * @param fileName
+	 * @return
+	 * @throws IOException
+	 */
+	public ByteBuffer response(SocketChannel channel, String fileName) throws IOException {
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
+		if (router.exists(fileName)) {
+			router.request(fileName, paramMap, headMap, baos);
+		} else {
+			//Not Found
+			router.error("404", baos);
+		}
+		return ByteBuffer.wrap(baos.toByteArray());
+	}
 
 }

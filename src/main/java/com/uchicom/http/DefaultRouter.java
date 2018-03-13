@@ -12,7 +12,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.Socket;
-import java.net.SocketAddress;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
@@ -25,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +52,12 @@ public class DefaultRouter implements Router {
 		File htmlFile = new File(baseFile, "html");
 		htmlFileLength = htmlFile.toURI().getPath().length();
 		createMap(htmlFile);
+		fileMap.forEach((fileName, file)->{
+			String key = fileName.substring(0, fileName.lastIndexOf('/') + 1);
+			if (basicMap.containsKey(key)) {
+				file.setBasic(basicMap.get(key));
+			}
+		});
 		createErrorMap(new File(baseFile, "error"));
 		watch(baseFile);
 	}
@@ -79,12 +85,13 @@ public class DefaultRouter implements Router {
 	 * java.util.Map, java.io.OutputStream)
 	 */
 	@Override
-	public void request(String fileName, SocketAddress address, Map<String, String[]> paramMap,
+	public void request(String fileName, Map<String, List<String>> paramMap,
 			Map<String, String> headMap, OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
 			WebFile file = fileMap.get(fileName);
-			if (basicMap.containsKey(fileName.substring(0, fileName.lastIndexOf('/') + 1))) {
+			
+			if (file.isBasic()) {
 				boolean auth = false;
 				// ベーシック認証チェック用
 				if (headMap.containsKey("Authorization")) {
@@ -147,19 +154,14 @@ public class DefaultRouter implements Router {
 			ps.print("Expires: ");
 			ps.print(Constants.formatter.format(file.getLastModified().plusDays(1)));
 			ps.print("\r\n\r\n");
-			byte[] bytes = null;
-			if ("text/html".equals(file.getContentType())) {
-				bytes = new byte[2 * 1024];
-			} else {
-				bytes = new byte[64 * 1024];
-			}
+//			byte[] bytes = null;
+//			if ("text/html".equals(file.getContentType())) {
+//				bytes = new byte[2 * 1024];
+//			} else {
+//				bytes = new byte[64 * 1024];
+//			}
 
-			try (FileInputStream fis = new FileInputStream(file.getFile());) {
-				int length = 0;
-				while ((length = fis.read(bytes)) > 0) {
-					ps.write(bytes, 0, length);
-				}
-			}
+			file.write(ps);
 			ps.flush();
 		}
 	}
