@@ -9,8 +9,8 @@ import java.net.Socket;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
-import com.uchicom.server.Parameter;
 import com.uchicom.server.ServerProcess;
+import com.uchicom.util.Parameter;
 
 /**
  * @author uchicom: Shigeki Uchiyama
