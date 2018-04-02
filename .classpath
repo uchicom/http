@@ -26,7 +26,7 @@
 	<classpathentry kind="src" path="src/main/java"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/server"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/remon"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/jsong"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/util"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

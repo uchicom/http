@@ -5,16 +5,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.net.URLDecoder;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 import com.uchicom.server.ServerProcess;
 import com.uchicom.util.Parameter;
@@ -82,9 +77,9 @@ public class HttpServerProcess implements ServerProcess {
                     }
                     Map<String, String[]> paramMap = null;
                     Map<String, String> headMap = new HashMap<>();
-                    if (urls.length > 1) {
+                    if (heads[0].equals("GET") && urls.length > 1) {
                         //GETパラメータありなので解析。
-                        paramMap = createGetParamMap(urls[1]);
+                        paramMap = router.createParamMap(urls[1]);
                     }
                     TemporalAccessor ifModified = null;
                     String line = br.readLine();
@@ -115,6 +110,13 @@ public class HttpServerProcess implements ServerProcess {
                         while ((length = br.read(cha, index, contentLength - index)) > 0) {
                         	index += length;
                         }
+                        if (headMap.containsKey("Content-Type")) {
+                        	if (headMap.get("Content-Type").indexOf("multipart/form-data") >= 0) {
+                        		//TODO マルチパート未実装
+                        	} else if ("POST".equals(heads[0])){
+                        		paramMap = router.createParamMap(new String(cha));
+                        	}
+                        }
                         System.out.println( socket.getRemoteSocketAddress() + "body" + new String(cha) );
                     }
                     // TODO WebFileを継承してBasicWebFileとする
@@ -127,7 +129,7 @@ public class HttpServerProcess implements ServerProcess {
                             os.write("\r\n".getBytes());
                             os.write("\r\n".getBytes());
                     	} else {
-                    		router.request(fileName, socket.getRemoteSocketAddress(), paramMap, headMap, os);
+                    		router.request(heads[0], fileName, socket.getRemoteSocketAddress(), paramMap, headMap, os);
                     	}
                     } else {
                         //Not Found
@@ -162,37 +164,6 @@ public class HttpServerProcess implements ServerProcess {
             }
         }
 
-	}
-
-	public Map<String, String[]> createGetParamMap(String get) {
-	    String[] keyValues;
-        try {
-            keyValues = URLDecoder.decode(get, "utf-8").split("&");
-        } catch (Exception e) {
-            e.printStackTrace();
-            keyValues = get.split("&");
-        }
-	    Map<String, List<String>> map = new HashMap<String, List<String>>();
-	    for (String keyValue : keyValues) {
-	        String[] split = keyValue.split("=");
-	        if (split.length > 1) {
-    	        if (map.containsKey(split[0])) {
-    	            List<String> list = map.get(split[0]);
-    	            list.add(split[1]);
-    	        } else {
-    	            List<String> list = new ArrayList<String>();
-    	            list.add(split[1]);
-    	            map.put(split[0], list);
-    	        }
-	        }
-	    }
-	    Map<String, String[]> stringMap = new HashMap<String, String[]>();
-	    Iterator<Entry<String, List<String>>> iterator = map.entrySet().iterator();
-	    while (iterator.hasNext()) {
-	        Entry<String, List<String>> entry = iterator.next();
-	        stringMap.put(entry.getKey(), entry.getValue().toArray(new String[0]));
-	    }
-	    return stringMap;
 	}
 
 }

@@ -81,7 +81,7 @@ public class DefaultRouter implements Router {
 	 * java.util.Map, java.io.OutputStream)
 	 */
 	@Override
-	public void request(String fileName, SocketAddress address, Map<String, String[]> paramMap,
+	public void request(String method, String fileName, SocketAddress address, Map<String, String[]> paramMap,
 			Map<String, String> headMap, OutputStream outputStream) throws IOException {
 
 		try (PrintStream ps = new PrintStream(outputStream);) {
@@ -132,7 +132,7 @@ public class DefaultRouter implements Router {
 			if (file.getFile().getName().endsWith(".jsong")) {
 				try {
 					Jsong jsong = new Jsong(file.getFile());
-					String value = jsong.generate(paramMap.get("c")[0]);
+					String value = jsong.generate(method, paramMap);
 					System.out.println(value);
 					bytes = value.getBytes("utf-8");
 					len = bytes.length;
