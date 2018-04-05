@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.uchicom.jsong.HttpResult;
 import com.uchicom.jsong.Jsong;
 
 /**
@@ -126,15 +127,18 @@ public class DefaultRouter implements Router {
 					return;
 				}
 			}
+			String addHeader = null;
 			// 通常ファイルの場合
 			long len = file.length();
 			byte[] bytes = null;
 			if (file.getFile().getName().endsWith(".jsong")) {
 				try {
 					Jsong jsong = new Jsong(file.getFile());
-					String value = jsong.generate(method, paramMap);
-					System.out.println(value);
-					bytes = value.getBytes("utf-8");
+					HttpResult result = jsong.generate(method, paramMap);
+					System.out.println(result.getHeader());
+					System.out.println(result.getBody());
+					addHeader = result.getHeader();
+					bytes = result.getBody().getBytes("utf-8");
 					len = bytes.length;
 				} catch (Exception e) {
 					// TODO 自動生成された catch ブロック
@@ -161,7 +165,17 @@ public class DefaultRouter implements Router {
 			ps.print("\r\n");
 			ps.print("Expires: ");
 			ps.print(Constants.formatter.format(file.getLastModified().plusDays(1)));
-			ps.print("\r\n\r\n");
+			ps.print("\r\n");
+			if (file.getFile().getName().endsWith(".jsong") && addHeader != null) {
+				try {
+					ps.print(addHeader);
+					ps.print("\r\n");
+				} catch (Exception e) {
+					// TODO 自動生成された catch ブロック
+					e.printStackTrace();
+				}
+			}
+			ps.print("\r\n");
 
 
 			if (file.getFile().getName().endsWith(".jsong")) {
