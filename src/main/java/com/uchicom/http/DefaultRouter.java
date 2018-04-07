@@ -129,7 +129,7 @@ public class DefaultRouter implements Router {
 			}
 			String addHeader = null;
 			// 通常ファイルの場合
-			long len = file.length();
+			long len = 0;
 			byte[] bytes = null;
 			if (file.getFile().getName().endsWith(".jsong")) {
 				try {
@@ -144,6 +144,8 @@ public class DefaultRouter implements Router {
 					// TODO 自動生成された catch ブロック
 					e.printStackTrace();
 				}
+			} else {
+				file.length();
 			}
 			ps.print("HTTP/1.1 200 OK \r\n");
 			ps.print("Date: ");
@@ -152,11 +154,9 @@ public class DefaultRouter implements Router {
 			ps.print("Server: uchicom-http\r\n");
 			ps.print("Accept-Ranges: none\r\n");
 			ps.print("Connection: close\r\n");
-			if (len != 0) {
-				ps.print("Content-Length: ");
-				ps.print(String.valueOf(len));
-				ps.print("\r\n");
-			}
+			ps.print("Content-Length: ");
+			ps.print(String.valueOf(len));
+			ps.print("\r\n");
 			ps.print("Last-Modified: ");
 			ps.print(Constants.formatter.format(file.getLastModified()));
 			ps.print("\r\n");
@@ -166,7 +166,7 @@ public class DefaultRouter implements Router {
 			ps.print("Expires: ");
 			ps.print(Constants.formatter.format(file.getLastModified().plusDays(1)));
 			ps.print("\r\n");
-			if (file.getFile().getName().endsWith(".jsong") && addHeader != null) {
+			if (file.getFile().getName().endsWith(".jsong") && addHeader != null && addHeader.trim().length() > 0) {
 				try {
 					ps.print(addHeader);
 					ps.print("\r\n");
