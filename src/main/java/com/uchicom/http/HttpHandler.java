@@ -9,6 +9,7 @@ import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
@@ -21,7 +22,10 @@ import java.util.Map;
  */
 public class HttpHandler implements Handler {
 
-  ByteBuffer readBuff = ByteBuffer.allocate(1024);
+  /** リクエスト(ヘッダー部)の最大サイズ */
+  private static final int MAX_REQUEST_SIZE = 8192;
+
+  ByteBuffer readBuff = ByteBuffer.allocate(MAX_REQUEST_SIZE);
   ByteBuffer writeBuff = ByteBuffer.allocate(1024);
   String fileName = null;
   StringBuffer strBuff = new StringBuffer();
@@ -45,9 +49,21 @@ public class HttpHandler implements Handler {
     SocketChannel channel = (SocketChannel) key.channel();
     if (key.isReadable()) {
       int length = channel.read(readBuff);
-      if (length > 0) {
-        readBuff.flip();
-        fileName = request(new String(readBuff.array()));
+      if (length < 0) {
+        // 要求の途中で切断された
+        key.cancel();
+        channel.close();
+        return;
+      }
+      if (isRequestComplete()) {
+        fileName =
+            request(new String(readBuff.array(), 0, readBuff.position(), StandardCharsets.UTF_8));
+      } else if (readBuff.hasRemaining()) {
+        // ヘッダー終端まで受信を続ける
+        return;
+      } else {
+        // 上限を超えても終端が来ない場合はBad Requestにする
+        fileName = null;
       }
       readBuff.clear();
       key.interestOps(SelectionKey.OP_WRITE);
@@ -69,6 +85,20 @@ public class HttpHandler implements Handler {
       readBuff.clear();
       key.cancel();
     }
+  }
+
+  /** 受信済みのバイト列にヘッダー終端(空行)が含まれるか. */
+  private boolean isRequestComplete() {
+    byte[] array = readBuff.array();
+    for (int i = 3; i < readBuff.position(); i++) {
+      if (array[i] == '\n'
+          && array[i - 1] == '\r'
+          && array[i - 2] == '\n'
+          && array[i - 3] == '\r') {
+        return true;
+      }
+    }
+    return false;
   }
 
   public String head(String head) throws IOException {
@@ -164,7 +194,10 @@ public class HttpHandler implements Handler {
    */
   public ByteBuffer response(SocketChannel channel, String fileName) throws IOException {
     ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
-    if (router.exists(fileName)) {
+    if (fileName == null) {
+      // Bad Request
+      router.error("400", baos);
+    } else if (router.exists(fileName)) {
       router.request(fileName, paramMap, headMap, baos);
     } else {
       // Not Found
