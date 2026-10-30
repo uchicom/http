@@ -19,6 +19,9 @@ public class Constants {
   /** デフォルトスレッドプール数 */
   public static String DEFAULT_POOL = "10";
 
+  /** リクエストボディの最大サイズ(バイト) */
+  public static final int MAX_CONTENT_LENGTH = 10 * 1024 * 1024;
+
   public static DateTimeFormatter formatter =
       DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC);
 }

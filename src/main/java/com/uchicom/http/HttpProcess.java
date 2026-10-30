@@ -84,16 +84,15 @@ public class HttpProcess implements ServerProcess {
       }
       TemporalAccessor ifModified = null;
       String line = br.readLine();
-      System.out.println(socket.getRemoteSocketAddress() + line);
       while (line != null && !"".equals(line)) {
-        line = br.readLine();
         System.out.println(socket.getRemoteSocketAddress() + line);
         int index = line.indexOf(":");
         if (index >= 0) {
-          headMap.put(line.substring(0, index), line.substring(index + 2));
+          String value = line.substring(index + 1).trim();
+          headMap.put(line.substring(0, index), value);
           if (line.startsWith("If-Modified-Since:")) {
             try {
-              ifModified = Constants.formatter.parse(line.substring(19));
+              ifModified = Constants.formatter.parse(value);
             } catch (DateTimeParseException e) {
               e.printStackTrace();
             }
@@ -101,17 +100,28 @@ public class HttpProcess implements ServerProcess {
         } else {
           headMap.put(line, line);
         }
+        line = br.readLine();
       }
       System.out.println(socket.getRemoteSocketAddress() + "middle:" + line);
       if (headMap.containsKey("Content-Length")) {
-        int contentLength = Integer.parseInt(headMap.get("Content-Length"));
+        int contentLength;
+        try {
+          contentLength = Integer.parseInt(headMap.get("Content-Length"));
+        } catch (NumberFormatException e) {
+          router.error("400", os);
+          return;
+        }
+        if (contentLength < 0 || contentLength > Constants.MAX_CONTENT_LENGTH) {
+          router.error("400", os);
+          return;
+        }
         char[] cha = new char[contentLength];
         int length = 0;
         int index = 0;
-        while ((length = br.read(cha, index, contentLength - index)) > 0) {
+        while (index < contentLength && (length = br.read(cha, index, contentLength - index)) > 0) {
           index += length;
         }
-        System.out.println(socket.getRemoteSocketAddress() + "body" + new String(cha));
+        System.out.println(socket.getRemoteSocketAddress() + "body" + new String(cha, 0, index));
       }
       // TODO WebFileを継承してBasicWebFileとする
       if (router.exists(fileName)) {
