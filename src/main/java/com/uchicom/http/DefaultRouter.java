@@ -117,6 +117,7 @@ public class DefaultRouter implements Router {
               }
             } catch (Exception e) {
               error("400", outputStream);
+              return;
             }
           }
         }

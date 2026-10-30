@@ -170,6 +170,21 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void requestBasicWithMalformedAuthorization() throws Exception {
+    write(htmlDir, ".basic", "user=pass\n");
+    write(htmlDir, "a.html", "body");
+    prepareBasic();
+    Map<String, String> head = new HashMap<>();
+    head.put("Authorization", "Basic !!!not-base64!!!");
+
+    String response = request("/a.html", head);
+
+    // 400のみを返し、続けて401を書かない
+    assertThat(response).startsWith("HTTP/1.1 400");
+    assertThat(response).doesNotContain("401");
+  }
+
+  @Test
   public void errorWithRegisteredPage() throws Exception {
     File errorDir = new File(baseDir, "error");
     errorDir.mkdirs();
