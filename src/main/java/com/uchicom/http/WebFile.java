@@ -96,12 +96,7 @@ public class WebFile {
 			synchronized(this) {
 				byte[] cache = new byte[(int)file.length()];
 				try (FileInputStream fis = new FileInputStream(file);) {
-					int length = 0;
-					int index = 0;
-					while ((length = fis.read(cache)) > 0) {
-						ps.write(cache, index, length);
-						index += length;
-					}
+					fis.readNBytes(cache, 0, cache.length);
 				}
 				this.cache = cache;
 			}
