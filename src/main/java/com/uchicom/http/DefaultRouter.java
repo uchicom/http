@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
@@ -18,6 +19,7 @@ import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchEvent.Modifier;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -89,6 +91,48 @@ public class DefaultRouter implements Router {
     return fileMap.containsKey(filePath);
   }
 
+  /**
+   * Basic認証を検証する. ヘッダーが不正な場合も例外にせず、認証失敗として扱う.
+   *
+   * @param fileName リクエスト対象のファイルパス
+   * @param headMap リクエストヘッダー
+   * @return 認証できた場合true
+   */
+  boolean authenticate(String fileName, Map<String, String> headMap) {
+    String authorization = headMap.get("Authorization");
+    if (authorization == null) {
+      return false;
+    }
+    int typeIndex = authorization.indexOf(' ');
+    if (typeIndex < 0 || !"Basic".equals(authorization.substring(0, typeIndex))) {
+      return false;
+    }
+    String decoded;
+    try {
+      decoded =
+          new String(
+              Base64.getDecoder().decode(authorization.substring(typeIndex + 1).trim()),
+              StandardCharsets.UTF_8);
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
+    int index = decoded.indexOf(':');
+    if (index < 0) {
+      return false;
+    }
+    Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
+    if (prop == null) {
+      return false;
+    }
+    String password = prop.getProperty(decoded.substring(0, index));
+    if (password == null) {
+      return false;
+    }
+    return MessageDigest.isEqual(
+        decoded.substring(index + 1).getBytes(StandardCharsets.UTF_8),
+        password.getBytes(StandardCharsets.UTF_8));
+  }
+
   /*
    * (non-Javadoc)
    *
@@ -107,34 +151,7 @@ public class DefaultRouter implements Router {
       WebFile file = fileMap.get(fileName);
 
       if (file.isBasic()) {
-        boolean auth = false;
-        // ベーシック認証チェック用
-        if (headMap.containsKey("Authorization")) {
-          // ベーシック認証処理
-          String authorization = headMap.get("Authorization");
-          int typeIndex = authorization.indexOf(' ');
-          String type = authorization.substring(0, typeIndex);
-          String encoded = authorization.substring(typeIndex + 1);
-
-          if ("Basic".equals(type)) {
-            try {
-              String decoded = new String(Base64.getDecoder().decode(encoded));
-              int index = decoded.indexOf(":");
-              // 認証結果
-              Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
-              if (prop.containsKey(decoded.substring(0, index))) {
-                auth =
-                    decoded
-                        .substring(index + 1)
-                        .equals(prop.getProperty(decoded.substring(0, index)));
-              }
-            } catch (Exception e) {
-              error("400", outputStream);
-              return;
-            }
-          }
-        }
-        if (!auth) {
+        if (!authenticate(fileName, headMap)) {
           // 認証エラー
           ps.print("HTTP/1.1 401 Authorization Required\r\n");
           ps.print("Date: ");

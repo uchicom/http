@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAccessor;
@@ -199,14 +200,50 @@ public class DefaultRouterTest {
     write(htmlDir, ".basic", "user=pass\n");
     write(htmlDir, "a.html", "body");
     prepareBasic();
+
+    for (String authorization :
+        new String[] {
+          "Basic",
+          "token",
+          "Basic !!!not-base64!!!",
+          "Basic " + Base64.getEncoder().encodeToString("nocolon".getBytes()),
+          "Basic " + Base64.getEncoder().encodeToString("unknown:pass".getBytes()),
+          "Bearer " + Base64.getEncoder().encodeToString("user:pass".getBytes())
+        }) {
+      Map<String, String> head = new HashMap<>();
+      head.put("Authorization", authorization);
+
+      String response = request("/a.html", head);
+
+      // 例外にならず、401のみを返す(400と二重に書かない)
+      assertThat(response).as(authorization).startsWith("HTTP/1.1 401");
+      assertThat(response).as(authorization).doesNotContain("400");
+    }
+  }
+
+  @Test
+  public void requestBasicWithoutBasicProperties() throws Exception {
+    write(htmlDir, ".basic", "user=pass\n");
+    write(htmlDir, "a.html", "body");
+    prepareBasic();
+    DefaultRouter.basicMap.clear();
+
+    assertThat(request("/a.html", authHeader("user:pass"))).startsWith("HTTP/1.1 401");
+  }
+
+  @Test
+  public void requestBasicDecodesAsUtf8() throws Exception {
+    // .basicはProperties(ISO-8859-1)で読まれるため、ASCII以外はUnicodeエスケープで書く
+    write(htmlDir, ".basic", "user=p\\u00e4ss\n");
+    write(htmlDir, "a.html", "body");
+    prepareBasic();
     Map<String, String> head = new HashMap<>();
-    head.put("Authorization", "Basic !!!not-base64!!!");
+    head.put(
+        "Authorization",
+        "Basic "
+            + Base64.getEncoder().encodeToString("user:päss".getBytes(StandardCharsets.UTF_8)));
 
-    String response = request("/a.html", head);
-
-    // 400のみを返し、続けて401を書かない
-    assertThat(response).startsWith("HTTP/1.1 400");
-    assertThat(response).doesNotContain("401");
+    assertThat(request("/a.html", head)).startsWith("HTTP/1.1 200 OK");
   }
 
   @Test
