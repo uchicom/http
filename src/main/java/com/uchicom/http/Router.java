@@ -21,7 +21,13 @@ public interface Router {
    */
   public void init(File baseFile);
 
-  public boolean isModified(String fileName, TemporalAccessor ifModified);
+  /**
+   * If-Modified-Since以降に更新されていない(304を返してよい)かをチェックする
+   *
+   * @param fileName
+   * @param ifModified
+   */
+  public boolean isNotModified(String fileName, TemporalAccessor ifModified);
 
   /**
    * 指定のURLが存在するかをチェックする
