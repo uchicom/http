@@ -217,4 +217,34 @@ public class HttpHandlerTest {
                 HttpProcess.class.getDeclaredField("router").getModifiers()))
         .isFalse();
   }
+
+  @Test
+  public void requestHeaderWithoutSpaceAfterColon() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    handler.request("GET /a.html HTTP/1.1\r\nX-NoSpace:value\r\nX-Spaces:   value  \r\n\r\n");
+
+    // 値の先頭1文字が欠けない。前後の空白は除去される
+    assertThat(handler.headMap).containsEntry("X-NoSpace", "value");
+    assertThat(handler.headMap).containsEntry("X-Spaces", "value");
+  }
+
+  @Test
+  public void requestHeaderWithEmptyValue() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    assertThat(handler.request("GET /a.html HTTP/1.1\r\nX-Empty:\r\n\r\n")).isEqualTo("/a.html");
+    assertThat(handler.headMap).containsEntry("X-Empty", "");
+  }
+
+  @Test
+  public void requestIfModifiedSinceWithoutSpace() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    handler.request(
+        "GET /a.html HTTP/1.1\r\nIf-Modified-Since:Thu, 01 Jan 2026 00:00:00 GMT\r\n\r\n");
+
+    assertThat(handler.ifModified).isNotNull();
+    assertThat(handler.headMap).containsEntry("If-Modified-Since", "Thu, 01 Jan 2026 00:00:00 GMT");
+  }
 }
