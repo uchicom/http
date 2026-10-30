@@ -2,9 +2,16 @@
 package com.uchicom.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.StringReader;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
@@ -12,6 +19,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -268,5 +276,110 @@ public class DefaultRouterTest {
     new DefaultRouter().error("500", out);
 
     assertThat(out.toString()).isEqualTo("HTTP/1.1 500 ERR\r\n");
+  }
+
+  private static Properties forwardProperties(String host, String port) {
+    Properties properties = new Properties();
+    if (host != null) {
+      properties.setProperty("host", host);
+    }
+    if (port != null) {
+      properties.setProperty("port", port);
+    }
+    return properties;
+  }
+
+  private String forward(String request) throws Exception {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    new DefaultRouter()
+        .forward(
+            "/fwd/x",
+            new String[] {"POST", "/fwd/x", "HTTP/1.1"},
+            new BufferedReader(new StringReader(request)),
+            out);
+    return out.toString();
+  }
+
+  @Test
+  public void forwardWithoutSetting() throws Exception {
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 404");
+  }
+
+  @Test
+  public void forwardWithInvalidSetting() throws Exception {
+    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", "abc"));
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
+
+    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", null));
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
+
+    DefaultRouter.forwardMap.put("/fwd/", forwardProperties(null, "8080"));
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
+  }
+
+  @Test
+  public void forwardWithInvalidContentLength() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      DefaultRouter.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      for (String contentLength : new String[] {"abc", "-1", String.valueOf(Integer.MAX_VALUE)}) {
+        assertThat(forward("Content-Length: " + contentLength + "\r\n\r\n"))
+            .as(contentLength)
+            .startsWith("HTTP/1.1 400");
+      }
+    }
+  }
+
+  @Test
+  public void forwardKeepsBinaryBody() throws Exception {
+    byte[] body = new byte[256];
+    for (int i = 0; i < body.length; i++) {
+      body[i] = (byte) i;
+    }
+    ByteArrayOutputStream received = new ByteArrayOutputStream();
+    try (ServerSocket server = new ServerSocket(0)) {
+      Thread thread =
+          new Thread(
+              () -> {
+                try (Socket socket = server.accept()) {
+                  InputStream in = socket.getInputStream();
+                  // ヘッダー終端までを読み捨て、続くボディを受信する
+                  int matched = 0;
+                  while (matched < 4) {
+                    int b = in.read();
+                    if (b < 0) {
+                      return;
+                    }
+                    matched = (b == "\r\n\r\n".charAt(matched)) ? matched + 1 : (b == '\r' ? 1 : 0);
+                  }
+                  received.write(in.readNBytes(body.length));
+                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".getBytes());
+                } catch (Exception e) {
+                  e.printStackTrace();
+                }
+              });
+      thread.start();
+      DefaultRouter.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      String response =
+          forward("Content-Length: 256\r\n\r\n" + new String(body, StandardCharsets.ISO_8859_1));
+      thread.join(5000);
+
+      assertThat(received.toByteArray()).isEqualTo(body);
+      assertThat(response).startsWith("HTTP/1.1 200 OK");
+    }
+  }
+
+  @Test
+  public void forwardConnectionRefused() throws Exception {
+    int port;
+    try (ServerSocket server = new ServerSocket(0)) {
+      port = server.getLocalPort();
+    }
+    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", String.valueOf(port)));
+
+    // 接続できない場合は例外を呼び出し元に伝える(ソケットはリークしない)
+    assertThatThrownBy(() -> forward("\r\n")).isInstanceOf(IOException.class);
   }
 }

@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
@@ -150,7 +151,9 @@ public class HttpProcess implements ServerProcess {
   public void execute() {
     System.out.println("execute");
     try {
-      BufferedReader br = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+      BufferedReader br =
+          new BufferedReader(
+              new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
       OutputStream os = socket.getOutputStream();
       // リクエストの分解、保持
       String head = br.readLine();

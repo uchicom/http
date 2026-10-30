@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
@@ -42,6 +43,12 @@ public class DefaultRouter implements Router {
   protected static Map<String, File> errorMap = new ConcurrentHashMap<>();
 
   protected static int htmlFileLength;
+
+  /** forward先への接続タイムアウト(ミリ秒) */
+  private static final int FORWARD_CONNECT_TIMEOUT = 5000;
+
+  /** forward先からの読み込みタイムアウト(ミリ秒) */
+  private static final int FORWARD_READ_TIMEOUT = 30000;
 
   /*
    * (non-Javadoc)
@@ -397,41 +404,69 @@ public class DefaultRouter implements Router {
       String filePath, String[] heads, BufferedReader reader, OutputStream outputStream)
       throws IOException {
     Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
-    Socket socket =
-        new Socket(prop.getProperty("host"), Integer.parseInt(prop.getProperty("port")));
-    OutputStream os = socket.getOutputStream();
-    os.write(heads[0].getBytes());
-    os.write(" ".getBytes());
-    os.write(heads[1].getBytes());
-    os.write(" ".getBytes());
-    os.write(heads[2].getBytes());
-    os.write("\r\n".getBytes());
-    String line = reader.readLine();
-    int contentLength = 0;
-    while (line != null && !"".equals(line)) {
-      if (line.startsWith("Content-Length: ")) {
-        contentLength = Integer.parseInt(line.substring(16));
+    if (prop == null) {
+      error("404", outputStream);
+      return;
+    }
+    String host = prop.getProperty("host");
+    int port;
+    try {
+      port = Integer.parseInt(prop.getProperty("port"));
+    } catch (NumberFormatException e) {
+      // 設定不備
+      error("502", outputStream);
+      return;
+    }
+    if (host == null) {
+      error("502", outputStream);
+      return;
+    }
+    // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), FORWARD_CONNECT_TIMEOUT);
+      socket.setSoTimeout(FORWARD_READ_TIMEOUT);
+      OutputStream os = socket.getOutputStream();
+      os.write(
+          (heads[0] + " " + heads[1] + " " + heads[2] + "\r\n")
+              .getBytes(StandardCharsets.ISO_8859_1));
+      String line = reader.readLine();
+      int contentLength = 0;
+      while (line != null && !"".equals(line)) {
+        if (line.regionMatches(true, 0, "Content-Length:", 0, 15)) {
+          try {
+            contentLength = Integer.parseInt(line.substring(15).trim());
+          } catch (NumberFormatException e) {
+            error("400", outputStream);
+            return;
+          }
+          if (contentLength < 0 || contentLength > Constants.MAX_CONTENT_LENGTH) {
+            error("400", outputStream);
+            return;
+          }
+        }
+        os.write((line + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+        line = reader.readLine();
       }
-      os.write(line.getBytes());
-      os.write("\r\n".getBytes());
-      line = reader.readLine();
+      os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+      if (contentLength > 0) {
+        char[] chars = new char[contentLength];
+        int index = 0;
+        int read;
+        while (index < contentLength
+            && (read = reader.read(chars, index, contentLength - index)) > 0) {
+          index += read;
+        }
+        os.write(new String(chars, 0, index).getBytes(StandardCharsets.ISO_8859_1));
+      }
+      os.flush();
+      InputStream is = socket.getInputStream();
+      byte[] bytes = new byte[4 * 1024];
+      int length = 0;
+      while ((length = is.read(bytes)) > 0) {
+        outputStream.write(bytes, 0, length);
+        outputStream.flush();
+      }
     }
-    os.write("\r\n".getBytes());
-    if (contentLength > 0) {
-      char[] chars = new char[contentLength];
-      reader.read(chars);
-      os.write(new String(chars).getBytes());
-    }
-    os.flush();
-    InputStream is = socket.getInputStream();
-    byte[] bytes = new byte[4 * 1024];
-    int length = 0;
-    while ((length = is.read(bytes)) > 0) {
-      outputStream.write(bytes, 0, length);
-      outputStream.flush();
-    }
-    System.out.println("sock.close");
-    socket.close();
   }
 
   /*
