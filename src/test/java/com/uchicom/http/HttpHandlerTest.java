@@ -167,4 +167,54 @@ public class HttpHandlerTest {
 
     assertThat(handler.request("GET /a.html HTTP/1.1\r\nHost: x\r\n\r\n")).isEqualTo("/a.html");
   }
+
+  @Test
+  public void requestResetsPreviousState() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+    handler.request("GET /a.html?x=1 HTTP/1.1\r\nAuthorization: Basic abc\r\n\r\n");
+    assertThat(handler.paramMap).containsKey("x");
+    assertThat(handler.headMap).containsKey("Authorization");
+
+    handler.request("GET /a.html HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    // GETパラメータの無いリクエストで、前のパラメータやヘッダーが残らない
+    assertThat(handler.paramMap).isNull();
+    assertThat(handler.headMap).containsOnlyKeys("Host");
+  }
+
+  @Test
+  public void requestResetsIfModified() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+    handler.request(
+        "GET /a.html HTTP/1.1\r\nIf-Modified-Since: Thu, 01 Jan 2026 00:00:00 GMT\r\n\r\n");
+    assertThat(handler.ifModified).isNotNull();
+
+    handler.request("GET /a.html HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    assertThat(handler.ifModified).isNull();
+  }
+
+  @Test
+  public void requestResetsStateEvenIfBadRequest() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+    handler.request("GET /a.html?x=1 HTTP/1.1\r\nHost: x\r\n\r\n");
+
+    handler.request("GARBAGE");
+
+    assertThat(handler.paramMap).isNull();
+    assertThat(handler.headMap).isEmpty();
+  }
+
+  @Test
+  public void routerIsPerInstance() throws Exception {
+    assertThat(new HttpHandler(null).router).isSameAs(Context.singleton().getRouter());
+    assertThat(
+            java.lang.reflect.Modifier.isStatic(
+                HttpHandler.class.getDeclaredField("router").getModifiers()))
+        .isFalse();
+    assertThat(
+            java.lang.reflect.Modifier.isStatic(
+                HttpProcess.class.getDeclaredField("router").getModifiers()))
+        .isFalse();
+  }
 }

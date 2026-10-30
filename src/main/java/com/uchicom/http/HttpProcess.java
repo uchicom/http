@@ -24,7 +24,7 @@ public class HttpProcess implements ServerProcess {
 
   private Socket socket;
 
-  protected static Router router;
+  protected final Router router;
 
   /** 最終処理時刻 */
   private long lastTime = System.currentTimeMillis();
