@@ -1,7 +1,7 @@
 // (C) 2026 uchicom
 package com.uchicom.http;
 
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 public class Constants {
@@ -20,5 +20,5 @@ public class Constants {
   public static String DEFAULT_POOL = "10";
 
   public static DateTimeFormatter formatter =
-      DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneId.of("Z"));
+      DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC);
 }
