@@ -160,8 +160,16 @@ public class HttpHandler implements Handler {
 
   public String request(String request) throws IOException {
     int rnIndex = request.indexOf("\r\n");
+    if (rnIndex < 0) {
+      // Bad Request
+      return null;
+    }
     String head = request.substring(0, rnIndex);
     String fileName = head(head);
+    if (fileName.isEmpty()) {
+      // Bad Request
+      return null;
+    }
 
     //		System.out.println("head:" + head);
     String head2 = request.substring(rnIndex + 2);

@@ -141,4 +141,30 @@ public class HttpHandlerTest {
     handler.fileName = "/none.html";
     assertThat(response(handler)).startsWith("HTTP/1.1 404");
   }
+
+  @Test
+  public void requestWithoutLineBreakIsBadRequest() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    assertThat(handler.request("GET /a.html HTTP/1.1")).isNull();
+    assertThat(handler.request("")).isNull();
+    assertThat(response(handler)).startsWith("HTTP/1.1 400");
+  }
+
+  @Test
+  public void requestWithMalformedRequestLineIsBadRequest() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    handler.fileName = handler.request("GARBAGE\r\n\r\n");
+
+    assertThat(handler.fileName).isNull();
+    assertThat(response(handler)).startsWith("HTTP/1.1 400");
+  }
+
+  @Test
+  public void requestParsesFileName() throws Exception {
+    HttpHandler handler = new HttpHandler(null);
+
+    assertThat(handler.request("GET /a.html HTTP/1.1\r\nHost: x\r\n\r\n")).isEqualTo("/a.html");
+  }
 }
