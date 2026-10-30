@@ -18,7 +18,9 @@ import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchEvent.Modifier;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
@@ -60,10 +62,21 @@ public class DefaultRouter implements Router {
     watch(baseFile);
   }
 
+  /**
+   * If-Modified-Since以降に更新されていない(304を返してよい)場合にtrueを返す.
+   *
+   * <p>HTTP日付は秒精度なので、ファイル更新時刻を秒に切り捨てて比較する. ファイルが存在しない場合はfalseを返す.
+   */
   @Override
-  public boolean isModified(String filePath, TemporalAccessor ifModified) {
+  public boolean isNotModified(String filePath, TemporalAccessor ifModified) {
     WebFile file = fileMap.get(filePath);
-    return file.getLastModified().equals(ifModified);
+    if (file == null) {
+      return false;
+    }
+    return !file.getLastModified()
+        .toInstant()
+        .truncatedTo(ChronoUnit.SECONDS)
+        .isAfter(Instant.from(ifModified));
   }
 
   /*

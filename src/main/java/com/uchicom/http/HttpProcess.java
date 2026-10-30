@@ -115,7 +115,7 @@ public class HttpProcess implements ServerProcess {
       }
       // TODO WebFileを継承してBasicWebFileとする
       if (router.exists(fileName)) {
-        if (ifModified != null && router.isModified(fileName, ifModified)) {
+        if (ifModified != null && router.isNotModified(fileName, ifModified)) {
           // キャッシュ
           os.write("HTTP/1.1 304 Not Modified \r\n".getBytes());
           os.write("Date: ".getBytes());

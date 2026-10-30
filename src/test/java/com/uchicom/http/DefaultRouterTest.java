@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
+import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -116,14 +117,38 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void isModified() throws Exception {
+  public void isNotModified() throws Exception {
     write(htmlDir, "a.txt", "a");
     DefaultRouter.createMap(htmlDir);
     DefaultRouter router = new DefaultRouter();
 
-    assertThat(router.isModified("/a.txt", DefaultRouter.fileMap.get("/a.txt").getLastModified()))
+    assertThat(
+            router.isNotModified("/a.txt", DefaultRouter.fileMap.get("/a.txt").getLastModified()))
         .isTrue();
-    assertThat(router.isModified("/a.txt", OffsetDateTime.MIN)).isFalse();
+    assertThat(router.isNotModified("/a.txt", OffsetDateTime.MIN)).isFalse();
+  }
+
+  @Test
+  public void isNotModifiedComparesInSeconds() throws Exception {
+    write(htmlDir, "a.txt", "a");
+    DefaultRouter.createMap(htmlDir);
+    DefaultRouter router = new DefaultRouter();
+    OffsetDateTime lastModified = DefaultRouter.fileMap.get("/a.txt").getLastModified();
+    // 実際のIf-Modified-Sinceと同じく、秒精度のHTTP日付文字列から解析する
+    TemporalAccessor same = Constants.formatter.parse(Constants.formatter.format(lastModified));
+    TemporalAccessor older =
+        Constants.formatter.parse(Constants.formatter.format(lastModified.minusSeconds(10)));
+    TemporalAccessor newer =
+        Constants.formatter.parse(Constants.formatter.format(lastModified.plusSeconds(10)));
+
+    assertThat(router.isNotModified("/a.txt", same)).isTrue();
+    assertThat(router.isNotModified("/a.txt", newer)).isTrue();
+    assertThat(router.isNotModified("/a.txt", older)).isFalse();
+  }
+
+  @Test
+  public void isNotModifiedMissingFile() {
+    assertThat(new DefaultRouter().isNotModified("/none.txt", OffsetDateTime.now())).isFalse();
   }
 
   @Test
