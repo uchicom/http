@@ -30,7 +30,7 @@ public class HttpHandler implements Handler {
   String fileName = null;
   StringBuffer strBuff = new StringBuffer();
 
-  protected static Router router;
+  protected final Router router;
 
   TemporalAccessor ifModified;
 
@@ -159,6 +159,10 @@ public class HttpHandler implements Handler {
   }
 
   public String request(String request) throws IOException {
+    // 前のリクエストの状態を持ち越さない
+    paramMap = null;
+    headMap.clear();
+    ifModified = null;
     int rnIndex = request.indexOf("\r\n");
     if (rnIndex < 0) {
       // Bad Request
