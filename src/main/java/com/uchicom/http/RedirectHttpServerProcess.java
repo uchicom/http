@@ -19,10 +19,10 @@ public class RedirectHttpServerProcess implements ServerProcess {
   private Socket socket;
   Router router;
 
-  public RedirectHttpServerProcess(Parameter parameter, Socket socket) {
+  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket) {
     this.parameter = parameter;
     this.socket = socket;
-    router = Context.singleton().getRouter();
+    this.router = router;
   }
 
   @Override

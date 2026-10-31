@@ -15,6 +15,8 @@ import java.io.PrintStream;
  */
 public class HttpParameter extends Parameter {
 
+  private Router router;
+
   public HttpParameter(String[] args) {
     super(args);
   }
@@ -46,7 +48,8 @@ public class HttpParameter extends Parameter {
       put("pool", Constants.DEFAULT_POOL);
     }
 
-    Context.singleton().init(getFile("dir"));
+    router = new DefaultRouter();
+    router.init(getFile("dir"));
 
     return true;
   }
@@ -59,7 +62,7 @@ public class HttpParameter extends Parameter {
             new MultiSocketServer(
                 this,
                 (parameter, socket) -> {
-                  return new HttpProcess(parameter, socket);
+                  return new HttpProcess(router, socket);
                 });
         break;
       case "pool":
@@ -67,7 +70,7 @@ public class HttpParameter extends Parameter {
             new PoolSocketServer(
                 this,
                 (parameter, socket) -> {
-                  return new HttpProcess(parameter, socket);
+                  return new HttpProcess(router, socket);
                 });
         break;
       case "single":
@@ -75,7 +78,7 @@ public class HttpParameter extends Parameter {
             new SingleSocketServer(
                 this,
                 (parameter, socket) -> {
-                  return new HttpProcess(parameter, socket);
+                  return new HttpProcess(router, socket);
                 });
         break;
       case "redirect":
@@ -83,7 +86,7 @@ public class HttpParameter extends Parameter {
             new MultiSocketServer(
                 this,
                 (parameter, socket) -> {
-                  return new RedirectHttpServerProcess(parameter, socket);
+                  return new RedirectHttpServerProcess(parameter, router, socket);
                 });
         break;
       case "proxy":

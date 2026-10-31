@@ -2,7 +2,6 @@
 package com.uchicom.http;
 
 import com.uchicom.server.ServerProcess;
-import com.uchicom.util.Parameter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -29,9 +28,9 @@ public class HttpProcess implements ServerProcess {
   /** 最終処理時刻 */
   private long lastTime = System.currentTimeMillis();
 
-  public HttpProcess(Parameter parameter, Socket socket) {
+  public HttpProcess(Router router, Socket socket) {
     this.socket = socket;
-    router = Context.singleton().getRouter();
+    this.router = router;
   }
 
   @Override

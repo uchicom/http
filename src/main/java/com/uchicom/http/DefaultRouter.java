@@ -26,7 +26,6 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -37,12 +36,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class DefaultRouter implements Router {
 
-  protected static Map<String, WebFile> fileMap = new ConcurrentHashMap<>();
-  protected static Map<String, Properties> basicMap = new ConcurrentHashMap<>();
-  protected static Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
-  protected static Map<String, File> errorMap = new ConcurrentHashMap<>();
+  protected final Map<String, WebFile> fileMap = new ConcurrentHashMap<>();
+  protected final Map<String, Properties> basicMap = new ConcurrentHashMap<>();
+  protected final Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
+  protected final Map<String, File> errorMap = new ConcurrentHashMap<>();
 
-  protected static int htmlFileLength;
+  protected int htmlFileLength;
 
   /** forward先への接続タイムアウト(ミリ秒) */
   private static final int FORWARD_CONNECT_TIMEOUT = 5000;
@@ -213,7 +212,7 @@ public class DefaultRouter implements Router {
    *
    * @param file
    */
-  public static void createMap(File file) {
+  public void createMap(File file) {
     if (file.isFile()) {
       if (file.getName().startsWith(".")) {
         // 隠しファイルは表示しない
@@ -256,7 +255,7 @@ public class DefaultRouter implements Router {
     }
   }
 
-  public static void createErrorMap(File file) {
+  public void createErrorMap(File file) {
     if (file.exists()) {
       if (file.isDirectory()) {
         File[] childs = file.listFiles();
@@ -309,7 +308,7 @@ public class DefaultRouter implements Router {
     }
   }
 
-  Map<WatchKey, Path> pathMap = new HashMap<>();
+  final Map<WatchKey, Path> pathMap = new ConcurrentHashMap<>();
 
   /**
    * @param baseFile

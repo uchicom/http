@@ -30,15 +30,14 @@ public class DefaultRouterTest {
 
   File htmlDir;
 
+  DefaultRouter router;
+
   @BeforeEach
   public void setUp() {
-    DefaultRouter.fileMap.clear();
-    DefaultRouter.basicMap.clear();
-    DefaultRouter.forwardMap.clear();
-    DefaultRouter.errorMap.clear();
+    router = new DefaultRouter();
     htmlDir = new File(baseDir, "html");
     htmlDir.mkdirs();
-    DefaultRouter.htmlFileLength = htmlDir.toURI().getPath().length();
+    router.htmlFileLength = htmlDir.toURI().getPath().length();
   }
 
   private void write(File dir, String name, String content) throws Exception {
@@ -47,17 +46,17 @@ public class DefaultRouterTest {
 
   private String request(String path, Map<String, String> headMap) throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    new DefaultRouter().request(path, new HashMap<>(), headMap, out);
+    router.request(path, new HashMap<>(), headMap, out);
     return out.toString();
   }
 
   private void prepareBasic() {
-    DefaultRouter.createMap(htmlDir);
-    DefaultRouter.fileMap.forEach(
+    router.createMap(htmlDir);
+    router.fileMap.forEach(
         (name, file) -> {
           String key = name.substring(0, name.lastIndexOf('/') + 1);
-          if (DefaultRouter.basicMap.containsKey(key)) {
-            file.setBasic(DefaultRouter.basicMap.get(key));
+          if (router.basicMap.containsKey(key)) {
+            file.setBasic(router.basicMap.get(key));
           }
         });
   }
@@ -76,9 +75,8 @@ public class DefaultRouterTest {
     sub.mkdirs();
     write(sub, "a.txt", "a");
 
-    DefaultRouter.createMap(htmlDir);
+    router.createMap(htmlDir);
 
-    DefaultRouter router = new DefaultRouter();
     assertThat(router.exists("/index.html")).isTrue();
     assertThat(router.exists("/sub/a.txt")).isTrue();
     assertThat(router.exists("/none.html")).isFalse();
@@ -88,9 +86,9 @@ public class DefaultRouterTest {
   public void createMapIgnoresHiddenFiles() throws Exception {
     write(htmlDir, ".hidden", "x");
 
-    DefaultRouter.createMap(htmlDir);
+    router.createMap(htmlDir);
 
-    assertThat(new DefaultRouter().exists("/.hidden")).isFalse();
+    assertThat(router.exists("/.hidden")).isFalse();
   }
 
   @Test
@@ -100,11 +98,11 @@ public class DefaultRouterTest {
     fwd.mkdirs();
     write(fwd, ".forward", "host=localhost\nport=8080\n");
 
-    DefaultRouter.createMap(htmlDir);
+    router.createMap(htmlDir);
 
-    assertThat(DefaultRouter.basicMap.get("/").getProperty("user")).isEqualTo("pass");
-    assertThat(new DefaultRouter().isForward("/fwd/x")).isTrue();
-    assertThat(new DefaultRouter().isForward("/other/x")).isFalse();
+    assertThat(router.basicMap.get("/").getProperty("user")).isEqualTo("pass");
+    assertThat(router.isForward("/fwd/x")).isTrue();
+    assertThat(router.isForward("/other/x")).isFalse();
   }
 
   @Test
@@ -113,26 +111,24 @@ public class DefaultRouterTest {
     errorDir.mkdirs();
     write(errorDir, "404.html", "not found");
 
-    DefaultRouter.createErrorMap(errorDir);
+    router.createErrorMap(errorDir);
 
-    assertThat(DefaultRouter.errorMap.get("404")).isEqualTo(new File(errorDir, "404.html"));
+    assertThat(router.errorMap.get("404")).isEqualTo(new File(errorDir, "404.html"));
   }
 
   @Test
   public void createErrorMapMissingDirectory() {
-    DefaultRouter.createErrorMap(new File(baseDir, "nothing"));
+    router.createErrorMap(new File(baseDir, "nothing"));
 
-    assertThat(DefaultRouter.errorMap).isEmpty();
+    assertThat(router.errorMap).isEmpty();
   }
 
   @Test
   public void isNotModified() throws Exception {
     write(htmlDir, "a.txt", "a");
-    DefaultRouter.createMap(htmlDir);
-    DefaultRouter router = new DefaultRouter();
+    router.createMap(htmlDir);
 
-    assertThat(
-            router.isNotModified("/a.txt", DefaultRouter.fileMap.get("/a.txt").getLastModified()))
+    assertThat(router.isNotModified("/a.txt", router.fileMap.get("/a.txt").getLastModified()))
         .isTrue();
     assertThat(router.isNotModified("/a.txt", OffsetDateTime.MIN)).isFalse();
   }
@@ -140,9 +136,8 @@ public class DefaultRouterTest {
   @Test
   public void isNotModifiedComparesInSeconds() throws Exception {
     write(htmlDir, "a.txt", "a");
-    DefaultRouter.createMap(htmlDir);
-    DefaultRouter router = new DefaultRouter();
-    OffsetDateTime lastModified = DefaultRouter.fileMap.get("/a.txt").getLastModified();
+    router.createMap(htmlDir);
+    OffsetDateTime lastModified = router.fileMap.get("/a.txt").getLastModified();
     // 実際のIf-Modified-Sinceと同じく、秒精度のHTTP日付文字列から解析する
     TemporalAccessor same = Constants.formatter.parse(Constants.formatter.format(lastModified));
     TemporalAccessor older =
@@ -157,13 +152,13 @@ public class DefaultRouterTest {
 
   @Test
   public void isNotModifiedMissingFile() {
-    assertThat(new DefaultRouter().isNotModified("/none.txt", OffsetDateTime.now())).isFalse();
+    assertThat(router.isNotModified("/none.txt", OffsetDateTime.now())).isFalse();
   }
 
   @Test
   public void requestNormalFile() throws Exception {
     write(htmlDir, "a.html", "body");
-    DefaultRouter.createMap(htmlDir);
+    router.createMap(htmlDir);
 
     String response = request("/a.html", new HashMap<>());
 
@@ -234,7 +229,7 @@ public class DefaultRouterTest {
     write(htmlDir, ".basic", "user=pass\n");
     write(htmlDir, "a.html", "body");
     prepareBasic();
-    DefaultRouter.basicMap.clear();
+    router.basicMap.clear();
 
     assertThat(request("/a.html", authHeader("user:pass"))).startsWith("HTTP/1.1 401");
   }
@@ -259,10 +254,10 @@ public class DefaultRouterTest {
     File errorDir = new File(baseDir, "error");
     errorDir.mkdirs();
     write(errorDir, "404.html", "not found");
-    DefaultRouter.createErrorMap(errorDir);
+    router.createErrorMap(errorDir);
     ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-    new DefaultRouter().error("404", out);
+    router.error("404", out);
 
     String response = out.toString();
     assertThat(response).startsWith("HTTP/1.1 404 ERR");
@@ -273,7 +268,7 @@ public class DefaultRouterTest {
   public void errorWithoutRegisteredPage() throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-    new DefaultRouter().error("500", out);
+    router.error("500", out);
 
     assertThat(out.toString()).isEqualTo("HTTP/1.1 500 ERR\r\n");
   }
@@ -291,12 +286,11 @@ public class DefaultRouterTest {
 
   private String forward(String request) throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    new DefaultRouter()
-        .forward(
-            "/fwd/x",
-            new String[] {"POST", "/fwd/x", "HTTP/1.1"},
-            new BufferedReader(new StringReader(request)),
-            out);
+    router.forward(
+        "/fwd/x",
+        new String[] {"POST", "/fwd/x", "HTTP/1.1"},
+        new BufferedReader(new StringReader(request)),
+        out);
     return out.toString();
   }
 
@@ -307,20 +301,20 @@ public class DefaultRouterTest {
 
   @Test
   public void forwardWithInvalidSetting() throws Exception {
-    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", "abc"));
+    router.forwardMap.put("/fwd/", forwardProperties("localhost", "abc"));
     assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
 
-    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", null));
+    router.forwardMap.put("/fwd/", forwardProperties("localhost", null));
     assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
 
-    DefaultRouter.forwardMap.put("/fwd/", forwardProperties(null, "8080"));
+    router.forwardMap.put("/fwd/", forwardProperties(null, "8080"));
     assertThat(forward("\r\n")).startsWith("HTTP/1.1 502");
   }
 
   @Test
   public void forwardWithInvalidContentLength() throws Exception {
     try (ServerSocket server = new ServerSocket(0)) {
-      DefaultRouter.forwardMap.put(
+      router.forwardMap.put(
           "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
       for (String contentLength : new String[] {"abc", "-1", String.valueOf(Integer.MAX_VALUE)}) {
         assertThat(forward("Content-Length: " + contentLength + "\r\n\r\n"))
@@ -359,7 +353,7 @@ public class DefaultRouterTest {
                 }
               });
       thread.start();
-      DefaultRouter.forwardMap.put(
+      router.forwardMap.put(
           "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
 
       String response =
@@ -377,7 +371,7 @@ public class DefaultRouterTest {
     try (ServerSocket server = new ServerSocket(0)) {
       port = server.getLocalPort();
     }
-    DefaultRouter.forwardMap.put("/fwd/", forwardProperties("localhost", String.valueOf(port)));
+    router.forwardMap.put("/fwd/", forwardProperties("localhost", String.valueOf(port)));
 
     // 接続できない場合は例外を呼び出し元に伝える(ソケットはリークしない)
     assertThatThrownBy(() -> forward("\r\n")).isInstanceOf(IOException.class);
