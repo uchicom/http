@@ -181,10 +181,11 @@ public class HttpHandler implements Handler {
     for (String line : heads2) {
       int index = line.indexOf(":");
       if (index >= 0) {
-        headMap.put(line.substring(0, index), line.substring(index + 2));
+        String value = line.substring(index + 1).trim();
+        headMap.put(line.substring(0, index), value);
         if (line.startsWith("If-Modified-Since:")) {
           try {
-            ifModified = Constants.formatter.parse(line.substring(19));
+            ifModified = Constants.formatter.parse(value);
           } catch (DateTimeParseException e) {
             e.printStackTrace();
           }
