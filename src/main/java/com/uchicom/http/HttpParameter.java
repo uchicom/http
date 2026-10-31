@@ -3,7 +3,6 @@ package com.uchicom.http;
 
 import com.uchicom.server.MultiSocketServer;
 import com.uchicom.server.PoolSocketServer;
-import com.uchicom.server.SelectorServer;
 import com.uchicom.server.Server;
 import com.uchicom.server.SingleSocketServer;
 import com.uchicom.util.Parameter;
@@ -77,14 +76,6 @@ public class HttpParameter extends Parameter {
                 this,
                 (parameter, socket) -> {
                   return new HttpProcess(parameter, socket);
-                });
-        break;
-      case "selector":
-        server =
-            new SelectorServer(
-                this,
-                () -> {
-                  return new HttpHandler(this);
                 });
         break;
       case "redirect":
