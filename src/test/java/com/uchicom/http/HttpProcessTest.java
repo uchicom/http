@@ -19,17 +19,16 @@ public class HttpProcessTest {
 
   @TempDir File baseDir;
 
+  DefaultRouter router;
+
   @BeforeEach
   public void setUp() throws Exception {
-    DefaultRouter.fileMap.clear();
-    DefaultRouter.basicMap.clear();
-    DefaultRouter.forwardMap.clear();
-    DefaultRouter.errorMap.clear();
+    router = new DefaultRouter();
     File htmlDir = new File(baseDir, "html");
     htmlDir.mkdirs();
-    DefaultRouter.htmlFileLength = htmlDir.toURI().getPath().length();
+    router.htmlFileLength = htmlDir.toURI().getPath().length();
     Files.writeString(new File(htmlDir, "a.html").toPath(), "body");
-    DefaultRouter.createMap(htmlDir);
+    router.createMap(htmlDir);
   }
 
   private String execute(String request) throws Exception {
@@ -39,14 +38,14 @@ public class HttpProcessTest {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     when(socket.getOutputStream()).thenReturn(out);
 
-    new HttpProcess(null, socket).execute();
+    new HttpProcess(router, socket).execute();
 
     return out.toString();
   }
 
   private String ifModifiedSince(long plusSeconds) {
     return Constants.formatter.format(
-        DefaultRouter.fileMap.get("/a.html").getLastModified().plusSeconds(plusSeconds));
+        router.fileMap.get("/a.html").getLastModified().plusSeconds(plusSeconds));
   }
 
   @Test
