@@ -37,7 +37,7 @@ public class DefaultRouterTest {
     router = new DefaultRouter();
     htmlDir = new File(baseDir, "html");
     htmlDir.mkdirs();
-    router.htmlFileLength = htmlDir.toURI().getPath().length();
+    router.setHtmlDir(htmlDir);
   }
 
   private void write(File dir, String name, String content) throws Exception {
@@ -51,14 +51,7 @@ public class DefaultRouterTest {
   }
 
   private void prepareBasic() {
-    router.createMap(htmlDir);
-    router.fileMap.forEach(
-        (name, file) -> {
-          String key = name.substring(0, name.lastIndexOf('/') + 1);
-          if (router.basicMap.containsKey(key)) {
-            file.setBasic(router.basicMap.get(key));
-          }
-        });
+    router.loadSettings(htmlDir);
   }
 
   private Map<String, String> authHeader(String credentials) {
@@ -69,13 +62,11 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void createMapRegistersFiles() throws Exception {
+  public void findServesExistingFilesOnly() throws Exception {
     write(htmlDir, "index.html", "top");
     File sub = new File(htmlDir, "sub");
     sub.mkdirs();
     write(sub, "a.txt", "a");
-
-    router.createMap(htmlDir);
 
     assertThat(router.exists("/index.html")).isTrue();
     assertThat(router.exists("/sub/a.txt")).isTrue();
@@ -83,22 +74,82 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void createMapIgnoresHiddenFiles() throws Exception {
-    write(htmlDir, ".hidden", "x");
+  public void findHonorsCacheSize() throws Exception {
+    write(htmlDir, "small.txt", "12345");
+    write(htmlDir, "large.txt", "1234567890");
 
-    router.createMap(htmlDir);
+    router.cacheSize = 0;
+    assertThat(router.find("/small.txt").isCacheable()).isFalse();
+
+    router.cacheSize = 5;
+    assertThat(router.find("/small.txt").isCacheable()).isTrue();
+    assertThat(router.find("/large.txt").isCacheable()).isFalse();
+  }
+
+  @Test
+  public void findReflectsFilesAddedAndRemovedAfterInit() throws Exception {
+    assertThat(router.exists("/late.txt")).isFalse();
+
+    write(htmlDir, "late.txt", "x");
+    assertThat(router.exists("/late.txt")).isTrue();
+
+    Files.delete(new File(htmlDir, "late.txt").toPath());
+    assertThat(router.exists("/late.txt")).isFalse();
+  }
+
+  @Test
+  public void findRejectsDirectoryHiddenDirectoryAndTraversal() throws Exception {
+    new File(htmlDir, "sub").mkdirs();
+    File hidden = new File(htmlDir, ".dir");
+    hidden.mkdirs();
+    write(hidden, "a.txt", "x");
+    write(baseDir, "outside.txt", "x");
+
+    assertThat(router.exists("/sub")).isFalse();
+    assertThat(router.exists("/.dir/a.txt")).isFalse();
+    assertThat(router.exists("/../outside.txt")).isFalse();
+    assertThat(router.exists("/sub/../../outside.txt")).isFalse();
+  }
+
+  @Test
+  public void findAppliesBasicToFilesAddedAfterInit() throws Exception {
+    write(htmlDir, ".basic", "user=pass\n");
+    router.loadSettings(htmlDir);
+    write(htmlDir, "late.txt", "x");
+
+    assertThat(router.find("/late.txt").isBasic()).isTrue();
+  }
+
+  @Test
+  public void requestReflectsUpdatedLastModifiedWithoutCache() throws Exception {
+    write(htmlDir, "a.txt", "old");
+    File file = new File(htmlDir, "a.txt");
+    file.setLastModified(1_000_000_000_000L);
+    OffsetDateTime before = router.find("/a.txt").getLastModified();
+
+    write(htmlDir, "a.txt", "new");
+    file.setLastModified(1_100_000_000_000L);
+
+    assertThat(router.find("/a.txt").getLastModified()).isAfter(before);
+    assertThat(router.isNotModified("/a.txt", before)).isFalse();
+    assertThat(request("/a.txt", new HashMap<>())).endsWith("new");
+  }
+
+  @Test
+  public void hiddenFilesAreNotServed() throws Exception {
+    write(htmlDir, ".hidden", "x");
 
     assertThat(router.exists("/.hidden")).isFalse();
   }
 
   @Test
-  public void createMapLoadsBasicAndForward() throws Exception {
+  public void loadSettingsLoadsBasicAndForward() throws Exception {
     write(htmlDir, ".basic", "user=pass\n");
     File fwd = new File(htmlDir, "fwd");
     fwd.mkdirs();
     write(fwd, ".forward", "host=localhost\nport=8080\n");
 
-    router.createMap(htmlDir);
+    router.loadSettings(htmlDir);
 
     assertThat(router.basicMap.get("/").getProperty("user")).isEqualTo("pass");
     assertThat(router.isForward("/fwd/x")).isTrue();
@@ -126,18 +177,15 @@ public class DefaultRouterTest {
   @Test
   public void isNotModified() throws Exception {
     write(htmlDir, "a.txt", "a");
-    router.createMap(htmlDir);
 
-    assertThat(router.isNotModified("/a.txt", router.fileMap.get("/a.txt").getLastModified()))
-        .isTrue();
+    assertThat(router.isNotModified("/a.txt", router.find("/a.txt").getLastModified())).isTrue();
     assertThat(router.isNotModified("/a.txt", OffsetDateTime.MIN)).isFalse();
   }
 
   @Test
   public void isNotModifiedComparesInSeconds() throws Exception {
     write(htmlDir, "a.txt", "a");
-    router.createMap(htmlDir);
-    OffsetDateTime lastModified = router.fileMap.get("/a.txt").getLastModified();
+    OffsetDateTime lastModified = router.find("/a.txt").getLastModified();
     // 実際のIf-Modified-Sinceと同じく、秒精度のHTTP日付文字列から解析する
     TemporalAccessor same = Constants.formatter.parse(Constants.formatter.format(lastModified));
     TemporalAccessor older =
@@ -158,7 +206,6 @@ public class DefaultRouterTest {
   @Test
   public void requestNormalFile() throws Exception {
     write(htmlDir, "a.html", "body");
-    router.createMap(htmlDir);
 
     String response = request("/a.html", new HashMap<>());
 
@@ -225,13 +272,8 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void requestBasicWithoutBasicProperties() throws Exception {
-    write(htmlDir, ".basic", "user=pass\n");
-    write(htmlDir, "a.html", "body");
-    prepareBasic();
-    router.basicMap.clear();
-
-    assertThat(request("/a.html", authHeader("user:pass"))).startsWith("HTTP/1.1 401");
+  public void authenticateWithoutBasicProperties() throws Exception {
+    assertThat(router.authenticate("/a.html", authHeader("user:pass"))).isFalse();
   }
 
   @Test
