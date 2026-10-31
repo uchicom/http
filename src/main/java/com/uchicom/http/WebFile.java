@@ -17,13 +17,25 @@ import java.util.Properties;
 public class WebFile {
 
   private File file;
-  private OffsetDateTime lastModified;
   public static Properties mimeProperties;
-  private long lastModifiedTime;
 
   private Properties basic;
 
-  private byte[] cache;
+  /** キャッシュ対象とする最大ファイルサイズ(バイト)。0以下の場合はキャッシュしない */
+  private final long cacheLimit;
+
+  /** キャッシュした内容と、読み込み時点のファイル更新時刻 */
+  private static final class Cache {
+    final byte[] bytes;
+    final long lastModified;
+
+    Cache(byte[] bytes, long lastModified) {
+      this.bytes = bytes;
+      this.lastModified = lastModified;
+    }
+  }
+
+  private volatile Cache cache;
 
   static {
     mimeProperties = new Properties();
@@ -67,10 +79,21 @@ public class WebFile {
   }
 
   /**
+   * 常にキャッシュ対象とするWebFileを生成する.
+   *
    * @param file
    */
   public WebFile(File file) {
+    this(file, Long.MAX_VALUE);
+  }
+
+  /**
+   * @param file
+   * @param cacheLimit キャッシュ対象とする最大ファイルサイズ(バイト)。0以下の場合はキャッシュせず毎回ファイルから読み込む
+   */
+  public WebFile(File file, long cacheLimit) {
     this.file = file;
+    this.cacheLimit = cacheLimit;
     String name = file.getName();
     int lastIndex = name.lastIndexOf(".");
     if (lastIndex >= 0) {
@@ -79,30 +102,45 @@ public class WebFile {
     if (contentType == null) {
       contentType = "text/plain";
     }
-    lastModified =
-        OffsetDateTime.ofInstant(Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
-    lastModifiedTime = file.lastModified();
   }
 
   public long length() {
     return file.length();
   }
 
+  /** 現在のファイル更新時刻を返す. 毎回ファイルから取得する. */
   public OffsetDateTime getLastModified() {
-    return lastModified;
+    return OffsetDateTime.ofInstant(
+        Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
+  }
+
+  /** 現在のファイルサイズでキャッシュ対象となる場合にtrueを返す. */
+  boolean isCacheable() {
+    return cacheLimit > 0 && file.length() <= cacheLimit;
   }
 
   public void write(PrintStream ps) throws FileNotFoundException, IOException {
-    if (cache == null || file.lastModified() != lastModifiedTime) {
+    if (!isCacheable()) {
+      cache = null;
+      try (FileInputStream fis = new FileInputStream(file); ) {
+        fis.transferTo(ps);
+      }
+      return;
+    }
+    Cache current = cache;
+    if (current == null || file.lastModified() != current.lastModified) {
       synchronized (this) {
-        byte[] cache = new byte[(int) file.length()];
+        // 読み込み前の更新時刻を保持し、読み込み中に更新されても次回再読み込みされるようにする
+        long modified = file.lastModified();
+        byte[] bytes = new byte[(int) file.length()];
         try (FileInputStream fis = new FileInputStream(file); ) {
-          fis.readNBytes(cache, 0, cache.length);
+          fis.readNBytes(bytes, 0, bytes.length);
         }
-        this.cache = cache;
+        current = new Cache(bytes, modified);
+        cache = current;
       }
     }
-    ps.write(cache);
+    ps.write(current.bytes);
   }
 
   public boolean isBasic() {

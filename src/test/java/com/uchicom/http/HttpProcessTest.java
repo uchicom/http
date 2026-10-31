@@ -26,9 +26,8 @@ public class HttpProcessTest {
     router = new DefaultRouter();
     File htmlDir = new File(baseDir, "html");
     htmlDir.mkdirs();
-    router.htmlFileLength = htmlDir.toURI().getPath().length();
+    router.setHtmlDir(htmlDir);
     Files.writeString(new File(htmlDir, "a.html").toPath(), "body");
-    router.createMap(htmlDir);
   }
 
   private String execute(String request) throws Exception {
@@ -45,7 +44,7 @@ public class HttpProcessTest {
 
   private String ifModifiedSince(long plusSeconds) {
     return Constants.formatter.format(
-        router.fileMap.get("/a.html").getLastModified().plusSeconds(plusSeconds));
+        router.find("/a.html").getLastModified().plusSeconds(plusSeconds));
   }
 
   @Test

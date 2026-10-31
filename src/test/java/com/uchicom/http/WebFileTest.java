@@ -60,6 +60,56 @@ public class WebFileTest {
   }
 
   @Test
+  public void writeNoCacheReflectsUpdate() throws Exception {
+    File file = new File(dir, "a.txt");
+    Files.writeString(file.toPath(), "old");
+    WebFile webFile = new WebFile(file, 0);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    webFile.write(new PrintStream(out));
+    assertThat(out.toString()).isEqualTo("old");
+
+    // 更新時刻が変わらなくても反映される
+    long modified = file.lastModified();
+    Files.writeString(file.toPath(), "new!");
+    file.setLastModified(modified);
+    out.reset();
+    webFile.write(new PrintStream(out));
+
+    assertThat(out.toString()).isEqualTo("new!");
+  }
+
+  @Test
+  public void writeCacheReloadsWhenLastModifiedChanges() throws Exception {
+    File file = new File(dir, "a.txt");
+    Files.writeString(file.toPath(), "old");
+    file.setLastModified(1_000_000_000_000L);
+    WebFile webFile = new WebFile(file, 1024);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    webFile.write(new PrintStream(out));
+
+    // 更新時刻が同じなら、キャッシュした内容を返す
+    Files.writeString(file.toPath(), "new");
+    file.setLastModified(1_000_000_000_000L);
+    out.reset();
+    webFile.write(new PrintStream(out));
+    assertThat(out.toString()).isEqualTo("old");
+
+    // 更新時刻が変われば読み直す
+    file.setLastModified(1_100_000_000_000L);
+    out.reset();
+    webFile.write(new PrintStream(out));
+    assertThat(out.toString()).isEqualTo("new");
+  }
+
+  @Test
+  public void writeSkipsCacheWhenOverLimit() throws Exception {
+    WebFile webFile = new WebFile(new File(dir, "a.txt"), 2);
+    Files.writeString(webFile.getFile().toPath(), "abc");
+
+    assertThat(webFile.isCacheable()).isFalse();
+  }
+
+  @Test
   public void basic() throws Exception {
     WebFile webFile = create("a.txt", "x");
     assertThat(webFile.isBasic()).isFalse();

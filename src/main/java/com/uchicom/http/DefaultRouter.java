@@ -12,14 +12,8 @@ import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchEvent;
-import java.nio.file.WatchEvent.Kind;
-import java.nio.file.WatchEvent.Modifier;
-import java.nio.file.WatchKey;
-import java.nio.file.WatchService;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -36,12 +30,20 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class DefaultRouter implements Router {
 
-  protected final Map<String, WebFile> fileMap = new ConcurrentHashMap<>();
+  /** キャッシュ内容を保持するため、リクエストをまたいで使い回すWebFile(キャッシュ有効時のみ使用) */
+  protected final Map<String, WebFile> webFileMap = new ConcurrentHashMap<>();
+
   protected final Map<String, Properties> basicMap = new ConcurrentHashMap<>();
   protected final Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
   protected final Map<String, File> errorMap = new ConcurrentHashMap<>();
 
   protected int htmlFileLength;
+
+  /** 公開ディレクトリ(正規化済みの絶対パス) */
+  protected Path htmlPath;
+
+  /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
+  protected long cacheSize;
 
   /** forward先への接続タイムアウト(ミリ秒) */
   private static final int FORWARD_CONNECT_TIMEOUT = 5000;
@@ -55,19 +57,52 @@ public class DefaultRouter implements Router {
    * @see com.uchicom.server.http.Router#init(java.io.File)
    */
   @Override
-  public void init(File baseFile) {
+  public void init(File baseFile, long cacheSize) {
+    this.cacheSize = cacheSize;
     File htmlFile = new File(baseFile, "html");
-    htmlFileLength = htmlFile.toURI().getPath().length();
-    createMap(htmlFile);
-    fileMap.forEach(
-        (fileName, file) -> {
-          String key = fileName.substring(0, fileName.lastIndexOf('/') + 1);
-          if (basicMap.containsKey(key)) {
-            file.setBasic(basicMap.get(key));
-          }
-        });
+    setHtmlDir(htmlFile);
+    loadSettings(htmlFile);
     createErrorMap(new File(baseFile, "error"));
-    watch(baseFile);
+  }
+
+  void setHtmlDir(File htmlFile) {
+    htmlFileLength = htmlFile.toURI().getPath().length();
+    htmlPath = htmlFile.toPath().toAbsolutePath().normalize();
+  }
+
+  /**
+   * リクエストパスに対応する公開可能なファイルを、都度ファイルシステムを確認して返す.
+   *
+   * <p>公開ディレクトリ外、および`.`で始まる名前を含むパスは対象外とする. 存在しない、またはファイルでない場合はnullを返す.
+   */
+  WebFile find(String filePath) {
+    if (!filePath.startsWith("/")) {
+      return null;
+    }
+    for (String name : filePath.split("/")) {
+      if (name.startsWith(".")) {
+        return null;
+      }
+    }
+    Path path;
+    try {
+      path = htmlPath.resolve(filePath.substring(1)).normalize();
+    } catch (InvalidPathException e) {
+      return null;
+    }
+    File file = path.toFile();
+    if (!path.startsWith(htmlPath) || !file.isFile()) {
+      webFileMap.remove(filePath);
+      return null;
+    }
+    WebFile webFile;
+    if (cacheSize > 0) {
+      webFile = webFileMap.computeIfAbsent(filePath, key -> new WebFile(file, cacheSize));
+    } else {
+      webFile = new WebFile(file, 0);
+    }
+    webFile.setBasic(basicMap.get(filePath.substring(0, filePath.lastIndexOf('/') + 1)));
+    return webFile;
   }
 
   /**
@@ -77,7 +112,7 @@ public class DefaultRouter implements Router {
    */
   @Override
   public boolean isNotModified(String filePath, TemporalAccessor ifModified) {
-    WebFile file = fileMap.get(filePath);
+    WebFile file = find(filePath);
     if (file == null) {
       return false;
     }
@@ -94,7 +129,7 @@ public class DefaultRouter implements Router {
    */
   @Override
   public boolean exists(String filePath) {
-    return fileMap.containsKey(filePath);
+    return find(filePath) != null;
   }
 
   /**
@@ -153,9 +188,13 @@ public class DefaultRouter implements Router {
       OutputStream outputStream)
       throws IOException {
 
+    WebFile file = find(fileName);
+    if (file == null) {
+      // existsの確認後に削除された場合
+      error("404", outputStream);
+      return;
+    }
     try (PrintStream ps = new PrintStream(outputStream); ) {
-      WebFile file = fileMap.get(fileName);
-
       if (file.isBasic()) {
         if (!authenticate(fileName, headMap)) {
           // 認証エラー
@@ -208,11 +247,11 @@ public class DefaultRouter implements Router {
   }
 
   /**
-   * 表示してよい存在するファイルを登録する。
+   * ディレクトリ配下の設定ファイル(.basic, .forward)を読み込む。
    *
    * @param file
    */
-  public void createMap(File file) {
+  public void loadSettings(File file) {
     if (file.isFile()) {
       if (file.getName().startsWith(".")) {
         // 隠しファイルは表示しない
@@ -242,15 +281,11 @@ public class DefaultRouter implements Router {
             e.printStackTrace();
           }
         }
-      } else {
-        String relativePath = file.toURI().getPath().substring(htmlFileLength - 1);
-        WebFile webFile = new WebFile(file);
-        fileMap.put(relativePath, webFile);
       }
     } else if (file.isDirectory()) {
       File[] childs = file.listFiles();
       for (File childFile : childs) {
-        createMap(childFile);
+        loadSettings(childFile);
       }
     }
   }
@@ -305,90 +340,6 @@ public class DefaultRouter implements Router {
         }
       }
       ps.flush();
-    }
-  }
-
-  final Map<WatchKey, Path> pathMap = new ConcurrentHashMap<>();
-
-  /**
-   * @param baseFile
-   */
-  private void watch(File baseFile) {
-    Thread thread =
-        new Thread(
-            () -> {
-              WatchKey key = null;
-              try {
-                WatchService service = FileSystems.getDefault().newWatchService();
-                File htmlFile = new File(baseFile, "html");
-                regist(service, htmlFile);
-                while ((key = service.take()) != null) {
-
-                  // スレッドの割り込み = 終了要求を判定する. 必要なのか不明
-                  if (Thread.currentThread().isInterrupted()) {
-                    throw new InterruptedException();
-                  }
-                  if (!key.isValid()) continue;
-                  for (WatchEvent<?> event : key.pollEvents()) {
-                    // eventではファイル名しかとれない
-                    Path file = (Path) event.context();
-                    // 監視対象のフォルダを取得する必要がある
-                    Path real = pathMap.get(key).resolve(file);
-                    String cpath = real.toFile().getCanonicalPath();
-                    String bpath = htmlFile.getCanonicalPath();
-                    String absPath = cpath.substring(bpath.length()).replace('\\', '/');
-                    if (StandardWatchEventKinds.ENTRY_CREATE.equals(event.kind())) {
-                      regist(service, real.toFile());
-                      if (!fileMap.containsKey(absPath)) {
-                        fileMap.put(absPath, new WebFile(real.toFile()));
-                      }
-                    } else if (StandardWatchEventKinds.ENTRY_DELETE.equals(event.kind())) {
-                      // 削除時はcancel不要の認識
-                      if (fileMap.containsKey(absPath)) {
-                        fileMap.remove(absPath);
-                      }
-                    } else if (StandardWatchEventKinds.ENTRY_MODIFY.equals(event.kind())) {
-                      if (fileMap.containsKey(absPath)) {
-                        fileMap.put(absPath, new WebFile(real.toFile()));
-                      }
-                    }
-                  }
-                  key.reset();
-                }
-              } catch (IOException e) {
-                e.printStackTrace();
-              } catch (InterruptedException e) {
-                e.printStackTrace();
-                key.cancel();
-              }
-            });
-    thread.setDaemon(false); // mainスレッドと運命を共に
-    thread.start();
-  }
-
-  /**
-   * 監視サービスにフォルダを再起呼び出しして登録する
-   *
-   * @param service
-   * @param file
-   * @throws IOException
-   */
-  public void regist(WatchService service, File file) throws IOException {
-    if (file.isDirectory()) {
-      Path path = file.toPath();
-      pathMap.put(
-          path.register(
-              service,
-              new Kind[] {
-                StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_MODIFY,
-                StandardWatchEventKinds.ENTRY_DELETE
-              },
-              new Modifier[] {}),
-          path);
-      for (File child : file.listFiles()) {
-        regist(service, child);
-      }
     }
   }
 

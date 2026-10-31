@@ -49,7 +49,21 @@ public class HttpParameter extends Parameter {
     }
 
     router = new DefaultRouter();
-    router.init(getFile("dir"));
+    // キャッシュ対象の最大ファイルサイズ(KB)。指定なしまたは0はキャッシュなし
+    long cacheSize = 0;
+    if (is("cache_max_kb")) {
+      try {
+        long kb = Long.parseLong(get("cache_max_kb"));
+        if (kb < 0) {
+          throw new NumberFormatException();
+        }
+        cacheSize = Math.multiplyExact(kb, 1024L);
+      } catch (NumberFormatException | ArithmeticException e) {
+        ps.println("cache_max_kb must be a non-negative integer: " + get("cache_max_kb"));
+        return false;
+      }
+    }
+    router.init(getFile("dir"), cacheSize);
 
     return true;
   }

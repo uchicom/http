@@ -15,11 +15,12 @@ import java.util.Map;
 public interface Router {
 
   /**
-   * 初期化 ここで、存在するファイルをチェックする。 また、動的にロードする場合は、定期的にチェックを行うスレッドを立ち上げる。
+   * 初期化 ここで、設定ファイルを読み込む。ファイルの存在や更新時刻はリクエストごとに確認する。
    *
    * @param baseFile
+   * @param cacheSize キャッシュ対象とする最大ファイルサイズ(バイト)。0以下の場合はキャッシュしない
    */
-  public void init(File baseFile);
+  public void init(File baseFile, long cacheSize);
 
   /**
    * If-Modified-Since以降に更新されていない(304を返してよい)かをチェックする
