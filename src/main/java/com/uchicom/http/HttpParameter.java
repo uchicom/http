@@ -5,6 +5,7 @@ import com.uchicom.server.MultiSocketServer;
 import com.uchicom.server.PoolSocketServer;
 import com.uchicom.server.Server;
 import com.uchicom.server.SingleSocketServer;
+import com.uchicom.server.VirtualSocketServer;
 import com.uchicom.util.Parameter;
 import java.io.PrintStream;
 
@@ -82,6 +83,14 @@ public class HttpParameter extends Parameter {
       case "pool":
         server =
             new PoolSocketServer(
+                this,
+                (parameter, socket) -> {
+                  return new HttpProcess(router, socket);
+                });
+        break;
+      case "virtual":
+        server =
+            new VirtualSocketServer(
                 this,
                 (parameter, socket) -> {
                   return new HttpProcess(router, socket);
