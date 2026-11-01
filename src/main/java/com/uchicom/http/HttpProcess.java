@@ -9,9 +9,6 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
-import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -25,12 +22,15 @@ public class HttpProcess implements ServerProcess {
 
   protected final Router router;
 
+  protected final StaticHandler staticHandler;
+
   /** 最終処理時刻 */
   private long lastTime = System.currentTimeMillis();
 
   public HttpProcess(Router router, Socket socket) {
     this.socket = socket;
     this.router = router;
+    this.staticHandler = new StaticHandler(router);
   }
 
   @Override
@@ -57,21 +57,8 @@ public class HttpProcess implements ServerProcess {
     String[] heads = head.split(" ");
     if (heads.length == 3) {
       // 初期応答行を返却する
-      String fileName = "";
       String[] urls = heads[1].split("\\?");
-      if (urls[0].endsWith("/")) {
-        if (urls[0].startsWith("/")) {
-          fileName = urls[0] + "index.htm";
-        } else {
-          fileName = "/" + urls[0] + "index.htm";
-        }
-      } else {
-        if (urls[0].startsWith("/")) {
-          fileName = urls[0];
-        } else {
-          fileName = "/" + urls[0];
-        }
-      }
+      String fileName = StaticHandler.normalize(urls[0]);
       if (router.isForward(fileName)) {
         router.forward(fileName, heads, br, os);
         return;
@@ -82,7 +69,6 @@ public class HttpProcess implements ServerProcess {
         // GETパラメータありなので解析。
         paramMap = createGetParamMap(urls[1]);
       }
-      TemporalAccessor ifModified = null;
       String line = br.readLine();
       while (line != null && !"".equals(line)) {
         System.out.println(socket.getRemoteSocketAddress() + line);
@@ -90,13 +76,6 @@ public class HttpProcess implements ServerProcess {
         if (index >= 0) {
           String value = line.substring(index + 1).trim();
           headMap.put(line.substring(0, index), value);
-          if (line.startsWith("If-Modified-Since:")) {
-            try {
-              ifModified = Constants.formatter.parse(value);
-            } catch (DateTimeParseException e) {
-              e.printStackTrace();
-            }
-          }
         } else {
           headMap.put(line, line);
         }
@@ -123,22 +102,7 @@ public class HttpProcess implements ServerProcess {
         }
         System.out.println(socket.getRemoteSocketAddress() + "body" + new String(cha, 0, index));
       }
-      // TODO WebFileを継承してBasicWebFileとする
-      if (router.exists(fileName)) {
-        if (ifModified != null && router.isNotModified(fileName, ifModified)) {
-          // キャッシュ
-          os.write("HTTP/1.1 304 Not Modified \r\n".getBytes());
-          os.write("Date: ".getBytes());
-          os.write(Constants.formatter.format(OffsetDateTime.now()).getBytes());
-          os.write("\r\n".getBytes());
-          os.write("\r\n".getBytes());
-        } else {
-          router.request(fileName, paramMap, headMap, os);
-        }
-      } else {
-        // Not Found
-        router.error("404", os);
-      }
+      staticHandler.handle(urls[0], paramMap, headMap, os);
 
     } else {
       // Bad Request
