@@ -81,6 +81,13 @@ public class StaticHandlerTest {
   }
 
   @Test
+  public void statusLineHasNoTrailingSpace() throws Exception {
+    assertThat(handle("/a.html", new HashMap<>())).startsWith("HTTP/1.1 200 OK\r\n");
+    assertThat(handle("/a.html", Map.of("If-Modified-Since", ifModifiedSince(3600))))
+        .startsWith("HTTP/1.1 304 Not Modified\r\n");
+  }
+
+  @Test
   public void modified() throws Exception {
     String response = handle("/a.html", Map.of("If-Modified-Since", ifModifiedSince(-3600)));
 

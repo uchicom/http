@@ -56,7 +56,7 @@ public class StaticHandler {
     }
     TemporalAccessor ifModified = parseIfModifiedSince(headMap.get("If-Modified-Since"));
     if (ifModified != null && router.isNotModified(fileName, ifModified)) {
-      os.write("HTTP/1.1 304 Not Modified \r\n".getBytes(StandardCharsets.ISO_8859_1));
+      os.write("HTTP/1.1 304 Not Modified\r\n".getBytes(StandardCharsets.ISO_8859_1));
       os.write("Date: ".getBytes(StandardCharsets.ISO_8859_1));
       os.write(
           Constants.formatter
