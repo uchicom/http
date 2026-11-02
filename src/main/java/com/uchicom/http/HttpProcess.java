@@ -40,7 +40,6 @@ public class HttpProcess implements ServerProcess {
 
   @Override
   public void forceClose() {
-    System.out.println("forceClose");
     if (socket != null) {
       try {
         socket.close();
@@ -71,7 +70,6 @@ public class HttpProcess implements ServerProcess {
       }
       String line = br.readLine();
       while (line != null && !"".equals(line)) {
-        System.out.println(socket.getRemoteSocketAddress() + line);
         int index = line.indexOf(":");
         if (index >= 0) {
           String value = line.substring(index + 1).trim();
@@ -81,7 +79,6 @@ public class HttpProcess implements ServerProcess {
         }
         line = br.readLine();
       }
-      System.out.println(socket.getRemoteSocketAddress() + "middle:" + line);
       if (headMap.containsKey("Content-Length")) {
         int contentLength;
         try {
@@ -94,13 +91,15 @@ public class HttpProcess implements ServerProcess {
           router.error("400", os);
           return;
         }
-        char[] cha = new char[contentLength];
-        int length = 0;
-        int index = 0;
-        while (index < contentLength && (length = br.read(cha, index, contentLength - index)) > 0) {
-          index += length;
+        // ボディは使わないので読み捨てる
+        long remaining = contentLength;
+        while (remaining > 0) {
+          long skipped = br.skip(remaining);
+          if (skipped <= 0) {
+            break;
+          }
+          remaining -= skipped;
         }
-        System.out.println(socket.getRemoteSocketAddress() + "body" + new String(cha, 0, index));
       }
       staticHandler.handle(urls[0], paramMap, headMap, os);
 
@@ -112,7 +111,6 @@ public class HttpProcess implements ServerProcess {
 
   @Override
   public void execute() {
-    System.out.println("execute");
     try {
       BufferedReader br =
           new BufferedReader(
@@ -120,7 +118,6 @@ public class HttpProcess implements ServerProcess {
       OutputStream os = socket.getOutputStream();
       // リクエストの分解、保持
       String head = br.readLine();
-      System.out.println(socket.getRemoteSocketAddress() + "head:" + head);
       if (head != null) {
         head(head, br, os);
 
@@ -138,7 +135,6 @@ public class HttpProcess implements ServerProcess {
       if (socket != null) {
         try {
           socket.close();
-          System.out.println("close!");
         } catch (Exception e) {
           e.printStackTrace();
         } finally {

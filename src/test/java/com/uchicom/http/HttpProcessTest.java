@@ -122,4 +122,19 @@ public class HttpProcessTest {
     assertThat(execute("GARBAGE\r\n\r\n")).startsWith("HTTP/1.1 400");
     assertThat(execute("")).startsWith("HTTP/1.1 400");
   }
+
+  @Test
+  public void doesNotWriteRequestToStdout() throws Exception {
+    java.io.PrintStream original = System.out;
+    ByteArrayOutputStream captured = new ByteArrayOutputStream();
+    System.setOut(new java.io.PrintStream(captured, true, StandardCharsets.UTF_8));
+    try {
+      execute(
+          "POST /a.html HTTP/1.1\r\nAuthorization: Basic c2VjcmV0\r\nContent-Length: 11\r\n\r\npassword=xx");
+    } finally {
+      System.setOut(original);
+    }
+
+    assertThat(captured.toString(StandardCharsets.UTF_8)).isEmpty();
+  }
 }
