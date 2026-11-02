@@ -208,16 +208,7 @@ public class DefaultRouter implements Router {
       if (file.isBasic()) {
         if (!authenticate(file, headMap)) {
           // 認証エラー
-          ps.print("HTTP/1.1 401 Authorization Required\r\n");
-          ps.print("Date: ");
-          ps.print(Constants.formatter.format(OffsetDateTime.now()));
-          ps.print("\r\n");
-          ps.print("Server: uchicom-http\r\n");
-          ps.print("WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n");
-          ps.print("Connection: close\r\n");
-          ps.print("Transfer-Encoding: chunked\r\n");
-          ps.print("Content-Type: text/html; charset=iso-8859-1\r\n");
-          ps.flush();
+          error("401", "WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n", outputStream);
           return;
         }
       }
@@ -227,7 +218,6 @@ public class DefaultRouter implements Router {
       ps.print("Date: ");
       ps.print(Constants.formatter.format(OffsetDateTime.now()));
       ps.print("\r\n");
-      ps.print("Server: uchicom-http\r\n");
       ps.print("Accept-Ranges: none\r\n");
       ps.print("Connection: close\r\n");
       if (len != 0) {
@@ -317,28 +307,36 @@ public class DefaultRouter implements Router {
    */
   @Override
   public void error(String code, OutputStream outputStream) throws IOException {
+    error(code, "", outputStream);
+  }
 
+  /**
+   * エラー応答を返す. エラーページがない場合も、空行とContent-Length: 0で終端する.
+   *
+   * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
+   */
+  void error(String code, String extraHeaders, OutputStream outputStream) throws IOException {
+    File error = errorMap.get(code);
+    long len = error != null ? error.length() : 0;
     try (PrintStream ps = new PrintStream(outputStream); ) {
       ps.print("HTTP/1.1 ");
       ps.print(code);
-      ps.print(" ERR\r\n");
-      if (errorMap.containsKey(code)) {
-        File error = errorMap.get(code);
-        ps.print("Date: ");
-        ps.print(Constants.formatter.format(OffsetDateTime.now()));
-        ps.print("\r\n");
-        ps.print("Server: SigleHttpServer\r\n");
-        ps.print("Accept-Ranges: bytes\r\n");
-        ps.print("Connection: close\r\n");
-        long len = 0;
-        len = error.length();
-        if (len != 0) {
-          ps.print("Content-Length: ");
-          ps.print(String.valueOf(len));
-          ps.print("\r\n");
-        }
-        ps.print("Content-Type: text/html");
-        ps.print("\r\n\r\n");
+      ps.print(" ");
+      ps.print(reasonPhrase(code));
+      ps.print("\r\n");
+      ps.print("Date: ");
+      ps.print(Constants.formatter.format(OffsetDateTime.now()));
+      ps.print("\r\n");
+      ps.print(extraHeaders);
+      ps.print("Connection: close\r\n");
+      ps.print("Content-Length: ");
+      ps.print(String.valueOf(len));
+      ps.print("\r\n");
+      if (len > 0) {
+        ps.print("Content-Type: text/html; charset=UTF-8\r\n");
+      }
+      ps.print("\r\n");
+      if (len > 0) {
         try (FileInputStream fis = new FileInputStream(error); ) {
           byte[] bytes = new byte[1024];
           int length = 0;
@@ -348,6 +346,41 @@ public class DefaultRouter implements Router {
         }
       }
       ps.flush();
+    }
+  }
+
+  static String reasonPhrase(String code) {
+    switch (code) {
+      case "400":
+        return "Bad Request";
+      case "401":
+        return "Unauthorized";
+      case "403":
+        return "Forbidden";
+      case "404":
+        return "Not Found";
+      case "405":
+        return "Method Not Allowed";
+      case "408":
+        return "Request Timeout";
+      case "411":
+        return "Length Required";
+      case "413":
+        return "Payload Too Large";
+      case "414":
+        return "URI Too Long";
+      case "500":
+        return "Internal Server Error";
+      case "501":
+        return "Not Implemented";
+      case "502":
+        return "Bad Gateway";
+      case "503":
+        return "Service Unavailable";
+      case "504":
+        return "Gateway Timeout";
+      default:
+        return "Error";
     }
   }
 
