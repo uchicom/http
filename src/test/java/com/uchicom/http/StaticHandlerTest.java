@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Base64;
 import java.util.HashMap;
@@ -39,7 +40,7 @@ public class StaticHandlerTest {
   private String handle(String path, Map<String, String> headMap) throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     handler.handle(path, null, headMap, out);
-    return out.toString();
+    return out.toString(StandardCharsets.UTF_8);
   }
 
   private String ifModifiedSince(long plusSeconds) {
@@ -109,7 +110,8 @@ public class StaticHandlerTest {
 
   @Test
   public void authorized() throws Exception {
-    String auth = "Basic " + Base64.getEncoder().encodeToString("user:pass".getBytes());
+    String auth =
+        "Basic " + Base64.getEncoder().encodeToString("user:pass".getBytes(StandardCharsets.UTF_8));
 
     String response = handle("/secret/b.html", Map.of("Authorization", auth));
 

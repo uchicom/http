@@ -8,13 +8,18 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class RedirectHttpServerProcess implements ServerProcess {
 
+  private static final Logger LOGGER = Logger.getLogger(RedirectHttpServerProcess.class.getName());
+
   //	private static byte[] response302Hader = "HTTP/1.1 302 Found\r\nLocation: ".getBytes();
   private static byte[] response301Hader =
-      "HTTP/1.1 301 Moved Permanently\r\nLocation: ".getBytes();
-  private static byte[] responseFooder = "\r\n\r\n".getBytes();
+      "HTTP/1.1 301 Moved Permanently\r\nLocation: ".getBytes(StandardCharsets.ISO_8859_1);
+  private static byte[] responseFooder = "\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
   private Parameter parameter;
   private Socket socket;
   Router router;
@@ -35,23 +40,25 @@ public class RedirectHttpServerProcess implements ServerProcess {
     try {
       socket.close();
     } catch (IOException e) {
-      e.printStackTrace();
+      LOGGER.log(Level.WARNING, "socket can not be closed", e);
     }
   }
 
   @Override
   public void execute() {
-    try (BufferedReader br = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+    try (BufferedReader br =
+            new BufferedReader(
+                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
         OutputStream os = socket.getOutputStream(); ) {
       // リクエストの分解、保持
       String head = br.readLine();
       if (head != null) {
-        String[] heads = head.split(" ");
+        String[] heads = head.split(" ", 0);
         if (heads.length == 3) {
           // 初期応答行を返却する
           os.write(response301Hader);
-          os.write(parameter.get("redirect").getBytes());
-          os.write(heads[1].getBytes());
+          os.write(parameter.get("redirect").getBytes(StandardCharsets.ISO_8859_1));
+          os.write(heads[1].getBytes(StandardCharsets.ISO_8859_1));
           os.write(responseFooder);
 
         } else {
@@ -64,9 +71,9 @@ public class RedirectHttpServerProcess implements ServerProcess {
         router.error("400", os);
       }
     } catch (IOException e) {
-      e.printStackTrace();
+      LOGGER.log(Level.WARNING, "request can not be processed", e);
     } catch (Throwable e) {
-      e.printStackTrace();
+      LOGGER.log(Level.SEVERE, "unexpected error", e);
     }
   }
 }

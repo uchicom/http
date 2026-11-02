@@ -4,31 +4,38 @@ package com.uchicom.http;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
-import java.util.Base64;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
+ * 静的ファイルの配信・認証・転送を行う標準のRouter.
+ *
  * @author Uchiyama Shigeki
  */
 public class DefaultRouter implements Router {
+
+  private static final Logger LOGGER = Logger.getLogger(DefaultRouter.class.getName());
 
   /** キャッシュ内容を保持するため、リクエストをまたいで使い回すWebFile(キャッシュ有効時のみ使用) */
   protected final Map<String, WebFile> webFileMap = new ConcurrentHashMap<>();
@@ -37,25 +44,21 @@ public class DefaultRouter implements Router {
   protected final Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
   protected final Map<String, File> errorMap = new ConcurrentHashMap<>();
 
-  protected int htmlFileLength;
-
   /** 公開ディレクトリ(正規化済みの絶対パス) */
   protected Path htmlPath;
+
+  /** 公開ディレクトリの実パス(シンボリックリンク・大文字小文字・短縮名を解決済み。解決できない場合はhtmlPathと同じ) */
+  protected Path htmlRealPath;
 
   /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
   protected long cacheSize;
 
   /** forward先への接続タイムアウト(ミリ秒) */
-  private static final int FORWARD_CONNECT_TIMEOUT = 5000;
+  protected int forwardConnectTimeout = 5000;
 
   /** forward先からの読み込みタイムアウト(ミリ秒) */
-  private static final int FORWARD_READ_TIMEOUT = 30000;
+  protected int forwardReadTimeout = 30000;
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#init(java.io.File)
-   */
   @Override
   public void init(File baseFile, long cacheSize) {
     this.cacheSize = cacheSize;
@@ -66,8 +69,8 @@ public class DefaultRouter implements Router {
   }
 
   void setHtmlDir(File htmlFile) {
-    htmlFileLength = htmlFile.toURI().getPath().length();
     htmlPath = htmlFile.toPath().toAbsolutePath().normalize();
+    htmlRealPath = toRealPathOrSelf(htmlPath);
   }
 
   /**
@@ -76,10 +79,11 @@ public class DefaultRouter implements Router {
    * <p>公開ディレクトリ外、および`.`で始まる名前を含むパスは対象外とする. 存在しない、またはファイルでない場合はnullを返す.
    */
   WebFile find(String filePath) {
-    if (!filePath.startsWith("/")) {
+    // Windowsでは`\`が区切りとして解釈され、隠しファイル判定を迂回されるため拒否する
+    if (!filePath.startsWith("/") || filePath.indexOf('\\') >= 0) {
       return null;
     }
-    for (String name : filePath.split("/")) {
+    for (String name : filePath.split("/", 0)) {
       if (name.startsWith(".")) {
         return null;
       }
@@ -90,8 +94,12 @@ public class DefaultRouter implements Router {
     } catch (InvalidPathException e) {
       return null;
     }
+    if (!path.startsWith(htmlPath) || containsHiddenName(htmlPath.relativize(path))) {
+      webFileMap.remove(filePath);
+      return null;
+    }
     File file = path.toFile();
-    if (!path.startsWith(htmlPath) || !file.isFile()) {
+    if (!file.isFile() || !isPublicRealPath(path)) {
       webFileMap.remove(filePath);
       return null;
     }
@@ -101,8 +109,60 @@ public class DefaultRouter implements Router {
     } else {
       webFile = new WebFile(file, 0);
     }
-    webFile.setBasic(basicMap.get(filePath.substring(0, filePath.lastIndexOf('/') + 1)));
+    webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
     return webFile;
+  }
+
+  /**
+   * 実パス(シンボリックリンク・8.3短縮名などを解決済み)が、公開ディレクトリ内で、かつ`.`で始まる名前を含まないか確認する.
+   *
+   * <p>リクエストの表記では隠しファイルと分からない短縮名や、公開ディレクトリ外へのシンボリックリンクを拒否する.
+   */
+  private boolean isPublicRealPath(Path path) {
+    Path real;
+    try {
+      real = path.toRealPath();
+    } catch (IOException e) {
+      return false;
+    }
+    return real.startsWith(htmlRealPath) && !containsHiddenName(htmlRealPath.relativize(real));
+  }
+
+  /** 相対パスの各要素に`.`で始まるものがあるか(解決後の最終確認). */
+  private static boolean containsHiddenName(Path relative) {
+    for (Path name : relative) {
+      if (name.toString().startsWith(".")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * ディレクトリから、公開ディレクトリからの相対ディレクトリキー(`/`始まり`/`終わり)を作る.
+   *
+   * <p>リクエスト文字列ではなく、実パスの表記(大文字小文字など)から作ることで、表記ゆれによる認証の迂回を防ぐ.
+   * 公開ディレクトリの外に解決される(シンボリックリンクなど)場合は、論理パスから作る.
+   */
+  String directoryKey(Path directory) {
+    Path absolute = directory.toAbsolutePath().normalize();
+    Path real = toRealPathOrSelf(absolute);
+    String relative =
+        real.startsWith(htmlRealPath)
+            ? htmlRealPath.relativize(real).toString()
+            : htmlPath.relativize(absolute).toString();
+    if (relative.isEmpty()) {
+      return "/";
+    }
+    return "/" + relative.replace(File.separatorChar, '/') + "/";
+  }
+
+  private static Path toRealPathOrSelf(Path path) {
+    try {
+      return path.toRealPath();
+    } catch (IOException e) {
+      return path;
+    }
   }
 
   /**
@@ -122,11 +182,6 @@ public class DefaultRouter implements Router {
         .isAfter(Instant.from(ifModified));
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#exists(java.lang.String)
-   */
   @Override
   public boolean exists(String filePath) {
     return find(filePath) != null;
@@ -135,51 +190,14 @@ public class DefaultRouter implements Router {
   /**
    * Basic認証を検証する. ヘッダーが不正な場合も例外にせず、認証失敗として扱う.
    *
-   * @param fileName リクエスト対象のファイルパス
+   * @param webFile リクエスト対象のファイル(認証情報を保持している)
    * @param headMap リクエストヘッダー
    * @return 認証できた場合true
    */
-  boolean authenticate(String fileName, Map<String, String> headMap) {
-    String authorization = headMap.get("Authorization");
-    if (authorization == null) {
-      return false;
-    }
-    int typeIndex = authorization.indexOf(' ');
-    if (typeIndex < 0 || !"Basic".equals(authorization.substring(0, typeIndex))) {
-      return false;
-    }
-    String decoded;
-    try {
-      decoded =
-          new String(
-              Base64.getDecoder().decode(authorization.substring(typeIndex + 1).trim()),
-              StandardCharsets.UTF_8);
-    } catch (IllegalArgumentException e) {
-      return false;
-    }
-    int index = decoded.indexOf(':');
-    if (index < 0) {
-      return false;
-    }
-    Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
-    if (prop == null) {
-      return false;
-    }
-    String password = prop.getProperty(decoded.substring(0, index));
-    if (password == null) {
-      return false;
-    }
-    return MessageDigest.isEqual(
-        decoded.substring(index + 1).getBytes(StandardCharsets.UTF_8),
-        password.getBytes(StandardCharsets.UTF_8));
+  boolean authenticate(WebFile webFile, Map<String, String> headMap) {
+    return BasicAuthenticator.authenticate(headMap.get("Authorization"), webFile.getBasic());
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#request(java.lang.String,
-   * java.util.Map, java.io.OutputStream)
-   */
   @Override
   public void request(
       String fileName,
@@ -196,18 +214,9 @@ public class DefaultRouter implements Router {
     }
     try (PrintStream ps = new PrintStream(outputStream); ) {
       if (file.isBasic()) {
-        if (!authenticate(fileName, headMap)) {
+        if (!authenticate(file, headMap)) {
           // 認証エラー
-          ps.print("HTTP/1.1 401 Authorization Required\r\n");
-          ps.print("Date: ");
-          ps.print(Constants.formatter.format(OffsetDateTime.now()));
-          ps.print("\r\n");
-          ps.print("Server: uchicom-http\r\n");
-          ps.print("WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n");
-          ps.print("Connection: close\r\n");
-          ps.print("Transfer-Encoding: chunked\r\n");
-          ps.print("Content-Type: text/html; charset=iso-8859-1\r\n");
-          ps.flush();
+          error("401", "WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n", outputStream);
           return;
         }
       }
@@ -215,9 +224,8 @@ public class DefaultRouter implements Router {
       long len = file.length();
       ps.print("HTTP/1.1 200 OK \r\n");
       ps.print("Date: ");
-      ps.print(Constants.formatter.format(OffsetDateTime.now()));
+      ps.print(Constants.formatter.format(OffsetDateTime.now(ZoneOffset.UTC)));
       ps.print("\r\n");
-      ps.print("Server: uchicom-http\r\n");
       ps.print("Accept-Ranges: none\r\n");
       ps.print("Connection: close\r\n");
       if (len != 0) {
@@ -249,36 +257,30 @@ public class DefaultRouter implements Router {
   /**
    * ディレクトリ配下の設定ファイル(.basic, .forward)を読み込む。
    *
-   * @param file
+   * @param file 設定ファイルを探すファイルまたはディレクトリ
    */
   public void loadSettings(File file) {
     if (file.isFile()) {
       if (file.getName().startsWith(".")) {
         // 隠しファイルは表示しない
         if (".basic".equals(file.getName())) {
-          String relativePath =
-              file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+          String relativePath = directoryKey(file.getParentFile().toPath());
           // Basicファイル認証がある場合
           try (FileInputStream fis = new FileInputStream(file)) {
             Properties properties = new Properties();
             properties.load(fis);
             basicMap.put(relativePath, properties);
-          } catch (FileNotFoundException e) {
-            e.printStackTrace();
           } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
           }
         } else if (".forward".equals(file.getName())) {
-          String relativePath =
-              file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+          String relativePath = directoryKey(file.getParentFile().toPath());
           try (FileInputStream fis = new FileInputStream(file)) {
             Properties properties = new Properties();
             properties.load(fis);
             forwardMap.put(relativePath, properties);
-          } catch (FileNotFoundException e) {
-            e.printStackTrace();
           } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
           }
         }
       }
@@ -301,36 +303,38 @@ public class DefaultRouter implements Router {
     }
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#error(java.lang.String,
-   * java.io.OutputStream)
-   */
   @Override
   public void error(String code, OutputStream outputStream) throws IOException {
+    error(code, "", outputStream);
+  }
 
+  /**
+   * エラー応答を返す. エラーページがない場合も、空行とContent-Length: 0で終端する.
+   *
+   * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
+   */
+  void error(String code, String extraHeaders, OutputStream outputStream) throws IOException {
+    File error = errorMap.get(code);
+    long len = error != null ? error.length() : 0;
     try (PrintStream ps = new PrintStream(outputStream); ) {
       ps.print("HTTP/1.1 ");
       ps.print(code);
-      ps.print(" ERR\r\n");
-      if (errorMap.containsKey(code)) {
-        File error = errorMap.get(code);
-        ps.print("Date: ");
-        ps.print(Constants.formatter.format(OffsetDateTime.now()));
-        ps.print("\r\n");
-        ps.print("Server: SigleHttpServer\r\n");
-        ps.print("Accept-Ranges: bytes\r\n");
-        ps.print("Connection: close\r\n");
-        long len = 0;
-        len = error.length();
-        if (len != 0) {
-          ps.print("Content-Length: ");
-          ps.print(String.valueOf(len));
-          ps.print("\r\n");
-        }
-        ps.print("Content-Type: text/html");
-        ps.print("\r\n\r\n");
+      ps.print(" ");
+      ps.print(reasonPhrase(code));
+      ps.print("\r\n");
+      ps.print("Date: ");
+      ps.print(Constants.formatter.format(OffsetDateTime.now(ZoneOffset.UTC)));
+      ps.print("\r\n");
+      ps.print(extraHeaders);
+      ps.print("Connection: close\r\n");
+      ps.print("Content-Length: ");
+      ps.print(String.valueOf(len));
+      ps.print("\r\n");
+      if (len > 0) {
+        ps.print("Content-Type: text/html; charset=UTF-8\r\n");
+      }
+      ps.print("\r\n");
+      if (len > 0) {
         try (FileInputStream fis = new FileInputStream(error); ) {
           byte[] bytes = new byte[1024];
           int length = 0;
@@ -343,17 +347,37 @@ public class DefaultRouter implements Router {
     }
   }
 
-  /*
-   * (非 Javadoc)
-   *
-   * @see com.uchicom.http.Router#forward(java.io.BufferedReader,
-   * java.io.OutputStream)
-   */
+  static String reasonPhrase(String code) {
+    return switch (code) {
+      case "400" -> "Bad Request";
+      case "401" -> "Unauthorized";
+      case "403" -> "Forbidden";
+      case "404" -> "Not Found";
+      case "405" -> "Method Not Allowed";
+      case "408" -> "Request Timeout";
+      case "411" -> "Length Required";
+      case "413" -> "Payload Too Large";
+      case "414" -> "URI Too Long";
+      case "431" -> "Request Header Fields Too Large";
+      case "500" -> "Internal Server Error";
+      case "501" -> "Not Implemented";
+      case "502" -> "Bad Gateway";
+      case "503" -> "Service Unavailable";
+      case "504" -> "Gateway Timeout";
+      default -> "Error";
+    };
+  }
+
   @Override
   public void forward(
-      String filePath, String[] heads, BufferedReader reader, OutputStream outputStream)
+      String filePath,
+      String[] heads,
+      BufferedReader reader,
+      OutputStream outputStream,
+      String clientAddress)
       throws IOException {
-    Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
+    String forwardKey = filePath.substring(0, filePath.indexOf('/', 1) + 1);
+    Properties prop = forwardMap.get(forwardKey);
     if (prop == null) {
       error("404", outputStream);
       return;
@@ -372,19 +396,34 @@ public class DefaultRouter implements Router {
       return;
     }
     // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
-    try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(host, port), FORWARD_CONNECT_TIMEOUT);
-      socket.setSoTimeout(FORWARD_READ_TIMEOUT);
-      OutputStream os = socket.getOutputStream();
-      os.write(
-          (heads[0] + " " + heads[1] + " " + heads[2] + "\r\n")
-              .getBytes(StandardCharsets.ISO_8859_1));
-      String line = reader.readLine();
-      int contentLength = 0;
-      while (line != null && !"".equals(line)) {
-        if (line.regionMatches(true, 0, "Content-Length:", 0, 15)) {
+    // 先にヘッダーを検証し、転送先には不完全なリクエストを送らない
+    int contentLength = 0;
+    int headerCount = 0;
+    String hostHeader = null;
+    String forwardedFor = null;
+    String authorization = null;
+    // .forward と同じディレクトリ直下の .basic がある場合のみ認証する
+    Properties basic = basicMap.get(forwardKey);
+    List<String> headers = new ArrayList<>();
+    String line;
+    try {
+      line = LineReader.readLine(reader);
+    } catch (LineReader.LineTooLongException e) {
+      error("431", outputStream);
+      return;
+    }
+    while (line != null && !"".equals(line)) {
+      if (++headerCount > Constants.MAX_HEADER_COUNT) {
+        error("431", outputStream);
+        return;
+      }
+      int index = line.indexOf(':');
+      String name = index > 0 ? line.substring(0, index).trim().toLowerCase(Locale.ROOT) : "";
+      String value = index > 0 ? line.substring(index + 1).trim() : "";
+      switch (name) {
+        case "content-length" -> {
           try {
-            contentLength = Integer.parseInt(line.substring(15).trim());
+            contentLength = Integer.parseInt(value);
           } catch (NumberFormatException e) {
             error("400", outputStream);
             return;
@@ -393,11 +432,67 @@ public class DefaultRouter implements Router {
             error("400", outputStream);
             return;
           }
+          headers.add(line);
         }
-        os.write((line + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
-        line = reader.readLine();
+        case "transfer-encoding" -> {
+          // chunked などのボディは解釈しないので明示的に拒否する
+          error("501", outputStream);
+          return;
+        }
+        case "connection", "keep-alive", "proxy-connection" -> {}
+        case "x-forwarded-for" ->
+            forwardedFor = forwardedFor == null ? value : forwardedFor + ", " + value;
+        case "x-forwarded-proto", "x-forwarded-host" -> {
+          // クライアントによる詐称を避けるため自前の値で置き換える
+        }
+        case "host" -> {
+          hostHeader = value;
+          headers.add(line);
+        }
+        case "authorization" -> {
+          if (basic == null) {
+            // .basic がなければ転送先の認証用にそのまま転送する
+            headers.add(line);
+          } else if (authorization == null) {
+            // .basic の資格情報は転送先に渡さない
+            authorization = value;
+          }
+        }
+        default -> headers.add(line);
       }
-      os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+      try {
+        line = LineReader.readLine(reader);
+      } catch (LineReader.LineTooLongException e) {
+        error("431", outputStream);
+        return;
+      }
+    }
+    if (basic != null && !BasicAuthenticator.authenticate(authorization, basic)) {
+      error("401", "WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n", outputStream);
+      return;
+    }
+    headers.add(
+        "X-Forwarded-For: " + (forwardedFor == null ? "" : forwardedFor + ", ") + clientAddress);
+    headers.add("X-Forwarded-Proto: http");
+    if (hostHeader != null) {
+      headers.add("X-Forwarded-Host: " + hostHeader);
+    }
+    headers.add("Connection: close");
+    // 転送先から応答を返し始めたあとは、ステータスを書けないので接続を閉じるだけにする
+    boolean responded = false;
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), forwardConnectTimeout);
+      socket.setSoTimeout(forwardReadTimeout);
+      OutputStream os = socket.getOutputStream();
+      StringBuilder sb =
+          new StringBuilder(heads[0]).append(' ').append(heads[1]).append(' ').append(heads[2]);
+      sb.append("\r\n");
+      for (String header : headers) {
+        sb.append(header).append("\r\n");
+      }
+      sb.append("\r\n");
+      os.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
+      // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
       if (contentLength > 0) {
         char[] chars = new char[contentLength];
         int index = 0;
@@ -413,17 +508,18 @@ public class DefaultRouter implements Router {
       byte[] bytes = new byte[4 * 1024];
       int length = 0;
       while ((length = is.read(bytes)) > 0) {
+        responded = true;
         outputStream.write(bytes, 0, length);
         outputStream.flush();
       }
+    } catch (IOException e) {
+      if (responded) {
+        return;
+      }
+      error(e instanceof SocketTimeoutException ? "504" : "502", outputStream);
     }
   }
 
-  /*
-   * (非 Javadoc)
-   *
-   * @see com.uchicom.http.Router#isForward(java.lang.String)
-   */
   @Override
   public boolean isForward(String filePath) {
     return forwardMap.containsKey(filePath.substring(0, filePath.indexOf('/', 1) + 1));

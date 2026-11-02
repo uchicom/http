@@ -17,6 +17,7 @@ import java.io.PrintStream;
 public class HttpParameter extends Parameter {
 
   private Router router;
+  private ProxyConfig proxyConfig;
 
   public HttpParameter(String[] args) {
     super(args);
@@ -66,61 +67,34 @@ public class HttpParameter extends Parameter {
     }
     router.init(getFile("dir"), cacheSize);
 
+    if ("proxy".equals(get("type"))) {
+      proxyConfig = ProxyConfig.create(this, ps);
+      if (proxyConfig == null) {
+        return false;
+      }
+    }
+
     return true;
   }
 
   public Server createServer() {
-    Server server = null;
-    switch (get("type")) {
-      case "multi":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "pool":
-        server =
-            new PoolSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "virtual":
-        server =
-            new VirtualSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "single":
-        server =
-            new SingleSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "redirect":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new RedirectHttpServerProcess(parameter, router, socket);
-                });
-        break;
-      case "proxy":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new ProxyHttpServerProcess(parameter, socket);
-                });
-        break;
-    }
-    return server;
+    return switch (get("type")) {
+      case "multi" ->
+          new MultiSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "pool" ->
+          new PoolSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "virtual" ->
+          new VirtualSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "single" ->
+          new SingleSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "redirect" ->
+          new MultiSocketServer(
+              this,
+              (parameter, socket) -> new RedirectHttpServerProcess(parameter, router, socket));
+      case "proxy" ->
+          new MultiSocketServer(
+              this, (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket));
+      default -> null;
+    };
   }
 }

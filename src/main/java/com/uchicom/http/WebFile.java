@@ -10,11 +10,17 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.Properties;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
+ * 公開ファイルの内容・種別・更新時刻を扱う.
+ *
  * @author Uchiyama Shigeki
  */
 public class WebFile {
+
+  private static final Logger LOGGER = Logger.getLogger(WebFile.class.getName());
 
   private File file;
   public static Properties mimeProperties;
@@ -46,7 +52,7 @@ public class WebFile {
               .getResource("com/uchicom/http/mime.properties")
               .openStream());
     } catch (IOException e) {
-      e.printStackTrace();
+      LOGGER.log(Level.WARNING, "mime.properties can not be loaded", e);
     }
   }
 
@@ -62,7 +68,7 @@ public class WebFile {
   /**
    * fileを設定します。
    *
-   * @param file
+   * @param file ファイル
    */
   public void setFile(File file) {
     this.file = file;
@@ -81,14 +87,14 @@ public class WebFile {
   /**
    * 常にキャッシュ対象とするWebFileを生成する.
    *
-   * @param file
+   * @param file ファイル
    */
   public WebFile(File file) {
     this(file, Long.MAX_VALUE);
   }
 
   /**
-   * @param file
+   * @param file ファイル
    * @param cacheLimit キャッシュ対象とする最大ファイルサイズ(バイト)。0以下の場合はキャッシュせず毎回ファイルから読み込む
    */
   public WebFile(File file, long cacheLimit) {
@@ -141,6 +147,10 @@ public class WebFile {
       }
     }
     ps.write(current.bytes);
+  }
+
+  public Properties getBasic() {
+    return basic;
   }
 
   public boolean isBasic() {

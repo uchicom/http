@@ -2,12 +2,10 @@
 package com.uchicom.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.net.ServerSocket;
@@ -15,11 +13,13 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,7 +47,7 @@ public class DefaultRouterTest {
   private String request(String path, Map<String, String> headMap) throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     router.request(path, new HashMap<>(), headMap, out);
-    return out.toString();
+    return out.toString(StandardCharsets.UTF_8);
   }
 
   private void prepareBasic() {
@@ -57,7 +57,9 @@ public class DefaultRouterTest {
   private Map<String, String> authHeader(String credentials) {
     Map<String, String> head = new HashMap<>();
     head.put(
-        "Authorization", "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes()));
+        "Authorization",
+        "Basic "
+            + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8)));
     return head;
   }
 
@@ -109,6 +111,80 @@ public class DefaultRouterTest {
     assertThat(router.exists("/.dir/a.txt")).isFalse();
     assertThat(router.exists("/../outside.txt")).isFalse();
     assertThat(router.exists("/sub/../../outside.txt")).isFalse();
+  }
+
+  @Test
+  public void findRejectsBackslashPaths() throws Exception {
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, ".basic", "user=pass\n");
+    write(htmlDir, ".x", "x");
+
+    for (String path : new String[] {"/sub\\.basic", "/sub/..\\.basic", "/.\\x", "/sub\\a.txt"}) {
+      assertThat(router.exists(path)).as(path).isFalse();
+      assertThat(request(path, new HashMap<>())).as(path).doesNotStartWith("HTTP/1.1 200");
+    }
+  }
+
+  @Test
+  public void findRejectsHiddenFilesByShortName() throws Exception {
+    Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, ".basic", "user=pass\n");
+    write(sub, ".forward", "host=localhost\nport=1\n");
+    write(sub, "a.txt", "x");
+    // 8.3短縮名が生成されない環境では対象外
+    String shortBasic = shortName(sub, ".basic");
+    String shortForward = shortName(sub, ".forward");
+    Assumptions.assumeTrue(shortBasic != null && shortForward != null);
+
+    assertThat(router.exists("/sub/" + shortBasic)).isFalse();
+    assertThat(router.exists("/sub/" + shortForward)).isFalse();
+    assertThat(request("/sub/" + shortBasic, new HashMap<>())).doesNotStartWith("HTTP/1.1 200");
+    assertThat(router.exists("/sub/a.txt")).isTrue();
+  }
+
+  /** `dir /x`で、指定の名前に対応する8.3短縮名を返す. 無い場合はnull. */
+  private String shortName(File dir, String name) throws Exception {
+    Process process =
+        new ProcessBuilder("cmd", "/c", "dir", "/x", dir.getAbsolutePath())
+            .redirectErrorStream(true)
+            .start();
+    String output =
+        new String(process.getInputStream().readAllBytes(), StandardCharsets.ISO_8859_1);
+    process.waitFor();
+    for (String line : output.split("\r?\n", 0)) {
+      if (line.endsWith(" " + name)) {
+        for (String token : line.trim().split("\\s+", 0)) {
+          if (token.contains("~")) {
+            return token;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  @Test
+  public void findRejectsSymbolicLinkOutsideHtml() throws Exception {
+    write(baseDir, "outside.txt", "secret");
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, "inside.txt", "x");
+    try {
+      Files.createSymbolicLink(
+          new File(htmlDir, "link.txt").toPath(), new File(baseDir, "outside.txt").toPath());
+      Files.createSymbolicLink(new File(htmlDir, "linkdir").toPath(), baseDir.toPath());
+      Files.createSymbolicLink(
+          new File(htmlDir, "inside-link.txt").toPath(), new File(sub, "inside.txt").toPath());
+    } catch (UnsupportedOperationException | java.io.IOException e) {
+      Assumptions.abort("symbolic link is not available");
+    }
+
+    assertThat(router.exists("/link.txt")).isFalse();
+    assertThat(router.exists("/linkdir/outside.txt")).isFalse();
+    assertThat(router.exists("/inside-link.txt")).isTrue();
   }
 
   @Test
@@ -200,7 +276,7 @@ public class DefaultRouterTest {
 
   @Test
   public void isNotModifiedMissingFile() {
-    assertThat(router.isNotModified("/none.txt", OffsetDateTime.now())).isFalse();
+    assertThat(router.isNotModified("/none.txt", OffsetDateTime.now(ZoneOffset.UTC))).isFalse();
   }
 
   @Test
@@ -225,6 +301,48 @@ public class DefaultRouterTest {
 
     assertThat(response).startsWith("HTTP/1.1 401");
     assertThat(response).contains("WWW-Authenticate: Basic");
+  }
+
+  @Test
+  public void requestBasicIsNotBypassedByDoubleSlash() throws Exception {
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+
+    for (String path : new String[] {"/secret//a.html", "/secret///a.html"}) {
+      assertThat(request(path, new HashMap<>())).as(path).startsWith("HTTP/1.1 401");
+      assertThat(router.find(path).isBasic()).as(path).isTrue();
+      assertThat(request(path, authHeader("user:pass"))).as(path).startsWith("HTTP/1.1 200");
+    }
+  }
+
+  @Test
+  public void requestBasicIsNotBypassedByCaseVariationOnCaseInsensitiveFileSystem()
+      throws Exception {
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+    Assumptions.assumeTrue(new File(htmlDir, "SECRET/A.HTML").isFile());
+
+    assertThat(request("/SECRET/a.html", new HashMap<>())).startsWith("HTTP/1.1 401");
+    assertThat(request("/secret/A.HTML", new HashMap<>())).startsWith("HTTP/1.1 401");
+    assertThat(request("/SECRET/a.html", authHeader("user:pass"))).startsWith("HTTP/1.1 200");
+  }
+
+  @Test
+  public void requestBasicIsNotBypassedByTrailingDotOnWindows() throws Exception {
+    Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+
+    assertThat(request("/secret./a.html", new HashMap<>())).doesNotStartWith("HTTP/1.1 200");
   }
 
   @Test
@@ -256,9 +374,11 @@ public class DefaultRouterTest {
           "Basic",
           "token",
           "Basic !!!not-base64!!!",
-          "Basic " + Base64.getEncoder().encodeToString("nocolon".getBytes()),
-          "Basic " + Base64.getEncoder().encodeToString("unknown:pass".getBytes()),
-          "Bearer " + Base64.getEncoder().encodeToString("user:pass".getBytes())
+          "Basic " + Base64.getEncoder().encodeToString("nocolon".getBytes(StandardCharsets.UTF_8)),
+          "Basic "
+              + Base64.getEncoder().encodeToString("unknown:pass".getBytes(StandardCharsets.UTF_8)),
+          "Bearer "
+              + Base64.getEncoder().encodeToString("user:pass".getBytes(StandardCharsets.UTF_8))
         }) {
       Map<String, String> head = new HashMap<>();
       head.put("Authorization", authorization);
@@ -273,7 +393,9 @@ public class DefaultRouterTest {
 
   @Test
   public void authenticateWithoutBasicProperties() throws Exception {
-    assertThat(router.authenticate("/a.html", authHeader("user:pass"))).isFalse();
+    assertThat(
+            router.authenticate(new WebFile(new File(htmlDir, "a.html")), authHeader("user:pass")))
+        .isFalse();
   }
 
   @Test
@@ -301,8 +423,10 @@ public class DefaultRouterTest {
 
     router.error("404", out);
 
-    String response = out.toString();
-    assertThat(response).startsWith("HTTP/1.1 404 ERR");
+    String response = out.toString(StandardCharsets.UTF_8);
+    assertThat(response).startsWith("HTTP/1.1 404 Not Found\r\n");
+    assertThat(response).doesNotContain("Server:");
+    assertThat(response).contains("Content-Length: 9\r\n");
     assertThat(response).endsWith("\r\n\r\nnot found");
   }
 
@@ -312,7 +436,40 @@ public class DefaultRouterTest {
 
     router.error("500", out);
 
-    assertThat(out.toString()).isEqualTo("HTTP/1.1 500 ERR\r\n");
+    String response = out.toString(StandardCharsets.UTF_8);
+    assertThat(response).startsWith("HTTP/1.1 500 Internal Server Error\r\n");
+    assertThat(response).contains("Content-Length: 0\r\n");
+    assertThat(response).endsWith("\r\n\r\n");
+  }
+
+  @Test
+  public void errorTerminatesHeadersWithAndWithoutPage() throws Exception {
+    File errorDir = new File(baseDir, "error");
+    errorDir.mkdirs();
+    write(errorDir, "404.html", "nf");
+    router.createErrorMap(errorDir);
+    for (String code : new String[] {"401", "404", "502"}) {
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      router.error(code, out);
+      assertThat(out.toString(StandardCharsets.UTF_8)).as(code).contains("\r\n\r\n");
+    }
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    router.error("502", out);
+    assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
+  }
+
+  @Test
+  public void request401IsWellFormed() throws Exception {
+    write(htmlDir, ".basic", "user=pass\n");
+    write(htmlDir, "a.html", "body");
+    prepareBasic();
+
+    String response = request("/a.html", new HashMap<>());
+
+    assertThat(response).startsWith("HTTP/1.1 401 Unauthorized\r\n");
+    assertThat(response).contains("WWW-Authenticate: Basic");
+    assertThat(response).doesNotContain("Transfer-Encoding");
+    assertThat(response).endsWith("\r\n\r\n");
   }
 
   private static Properties forwardProperties(String host, String port) {
@@ -332,8 +489,129 @@ public class DefaultRouterTest {
         "/fwd/x",
         new String[] {"POST", "/fwd/x", "HTTP/1.1"},
         new BufferedReader(new StringReader(request)),
-        out);
-    return out.toString();
+        out,
+        "192.0.2.1");
+    return out.toString(StandardCharsets.UTF_8);
+  }
+
+  /** 転送先に届いたヘッダー部を返す. 転送先は応答を返したあと接続を閉じない. */
+  private String forwardAndCaptureHeaders(String request) throws Exception {
+    StringBuilder received = new StringBuilder();
+    try (ServerSocket server = new ServerSocket(0)) {
+      Thread thread =
+          new Thread(
+              () -> {
+                try (Socket socket = server.accept()) {
+                  InputStream in = socket.getInputStream();
+                  while (!received.toString().endsWith("\r\n\r\n")) {
+                    int b = in.read();
+                    if (b < 0) {
+                      return;
+                    }
+                    received.append((char) b);
+                  }
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                  socket.getOutputStream().flush();
+                  // keep-alive 指定なら閉じずに待つ転送先を模す
+                  if (!received.toString().contains("Connection: close\r\n")) {
+                    Thread.sleep(3000);
+                  }
+                } catch (Exception e) {
+                  // テスト終了時の切断は無視
+                }
+              });
+      thread.start();
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      long start = System.currentTimeMillis();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      router.forwardReadTimeout = 5000;
+      router.forward(
+          "/fwd/x",
+          new String[] {"GET", "/fwd/x", "HTTP/1.1"},
+          new BufferedReader(new StringReader(request)),
+          out,
+          "192.0.2.1");
+      thread.join(5000);
+      assertThat(System.currentTimeMillis() - start).isLessThan(2500);
+      assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("HTTP/1.1 200 OK");
+      return received.toString();
+    }
+  }
+
+  @Test
+  public void forwardReplacesConnectionAndAddsForwardedHeaders() throws Exception {
+    String received =
+        forwardAndCaptureHeaders(
+            """
+            Host: example.com\r
+            Connection: keep-alive\r
+            Keep-Alive: timeout=5\r
+            X-Forwarded-For: 198.51.100.7\r
+            X-Forwarded-Proto: https\r
+            \r
+            """);
+
+    assertThat(received).contains("Connection: close\r\n");
+    assertThat(received).doesNotContain("keep-alive").doesNotContain("Keep-Alive");
+    assertThat(received).contains("X-Forwarded-For: 198.51.100.7, 192.0.2.1\r\n");
+    assertThat(received).contains("X-Forwarded-Proto: http\r\n").doesNotContain("https");
+    assertThat(received).contains("X-Forwarded-Host: example.com\r\n");
+  }
+
+  @Test
+  public void forwardRejectsTransferEncoding() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      assertThat(forward("Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"))
+          .startsWith("HTTP/1.1 501");
+    }
+  }
+
+  private static String basicHeader(String userPass) {
+    return "Authorization: Basic "
+        + Base64.getEncoder().encodeToString(userPass.getBytes(StandardCharsets.UTF_8))
+        + "\r\n";
+  }
+
+  private void putForwardBasic() {
+    Properties basic = new Properties();
+    basic.setProperty("user", "pass");
+    router.basicMap.put("/fwd/", basic);
+  }
+
+  @Test
+  public void forwardWithBasicRejectsMissingOrWrongCredentials() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      putForwardBasic();
+
+      String none = forward("\r\n");
+      assertThat(none).startsWith("HTTP/1.1 401 Unauthorized\r\n");
+      assertThat(none).contains("WWW-Authenticate: Basic");
+      assertThat(forward(basicHeader("user:wrong") + "\r\n")).startsWith("HTTP/1.1 401");
+    }
+  }
+
+  @Test
+  public void forwardWithBasicDropsAuthorizationOnSuccess() throws Exception {
+    putForwardBasic();
+
+    String received = forwardAndCaptureHeaders(basicHeader("user:pass") + "\r\n");
+
+    assertThat(received).doesNotContain("Authorization");
+  }
+
+  @Test
+  public void forwardWithoutBasicKeepsAuthorization() throws Exception {
+    String received = forwardAndCaptureHeaders(basicHeader("user:pass") + "\r\n");
+
+    assertThat(received).contains("Authorization: Basic ");
   }
 
   @Test
@@ -367,6 +645,28 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void forwardRejectsTooLongHeaderLine() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      String longLine = "X-Long: " + "a".repeat(Constants.MAX_LINE_LENGTH);
+      assertThat(forward(longLine + "\r\n\r\n")).startsWith("HTTP/1.1 431");
+      // 改行なしで巨大なデータが来ても上限で打ち切る
+      assertThat(forward("a".repeat(Constants.MAX_LINE_LENGTH * 4))).startsWith("HTTP/1.1 431");
+    }
+  }
+
+  @Test
+  public void forwardRejectsTooManyHeaders() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      String headers = "X-A: b\r\n".repeat(Constants.MAX_HEADER_COUNT + 1);
+      assertThat(forward(headers + "\r\n")).startsWith("HTTP/1.1 431");
+    }
+  }
+
+  @Test
   public void forwardKeepsBinaryBody() throws Exception {
     byte[] body = new byte[256];
     for (int i = 0; i < body.length; i++) {
@@ -389,9 +689,11 @@ public class DefaultRouterTest {
                     matched = (b == "\r\n\r\n".charAt(matched)) ? matched + 1 : (b == '\r' ? 1 : 0);
                   }
                   received.write(in.readNBytes(body.length));
-                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".getBytes());
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                 } catch (Exception e) {
-                  e.printStackTrace();
+                  throw new IllegalStateException(e);
                 }
               });
       thread.start();
@@ -415,7 +717,47 @@ public class DefaultRouterTest {
     }
     router.forwardMap.put("/fwd/", forwardProperties("localhost", String.valueOf(port)));
 
-    // 接続できない場合は例外を呼び出し元に伝える(ソケットはリークしない)
-    assertThatThrownBy(() -> forward("\r\n")).isInstanceOf(IOException.class);
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
+  }
+
+  @Test
+  public void forwardReadTimeout() throws Exception {
+    router.forwardReadTimeout = 200;
+    try (ServerSocket server = new ServerSocket(0)) {
+      // 接続は受け付けるが応答しない
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      assertThat(forward("\r\n")).startsWith("HTTP/1.1 504 Gateway Timeout\r\n");
+    }
+  }
+
+  @Test
+  public void forwardFailureAfterResponseStartedOnlyCloses() throws Exception {
+    router.forwardReadTimeout = 200;
+    try (ServerSocket server = new ServerSocket(0)) {
+      Thread thread =
+          new Thread(
+              () -> {
+                try (Socket socket = server.accept()) {
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n".getBytes(StandardCharsets.UTF_8));
+                  socket.getOutputStream().flush();
+                  // 続きを返さず待つ
+                  Thread.sleep(1000);
+                } catch (Exception e) {
+                  // テスト終了時の切断は無視
+                }
+              });
+      thread.start();
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      String response = forward("\r\n");
+      thread.join(5000);
+
+      assertThat(response).isEqualTo("HTTP/1.1 200 OK\r\n");
+    }
   }
 }
