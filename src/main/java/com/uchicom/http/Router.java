@@ -56,6 +56,10 @@ public interface Router {
   public void error(String code, OutputStream outputStream) throws IOException;
 
   public void forward(
-      String filePath, String[] heads, BufferedReader reader, OutputStream outputStream)
+      String filePath,
+      String[] heads,
+      BufferedReader reader,
+      OutputStream outputStream,
+      String clientAddress)
       throws IOException;
 }

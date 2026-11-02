@@ -423,8 +423,79 @@ public class DefaultRouterTest {
         "/fwd/x",
         new String[] {"POST", "/fwd/x", "HTTP/1.1"},
         new BufferedReader(new StringReader(request)),
-        out);
+        out,
+        "192.0.2.1");
     return out.toString();
+  }
+
+  /** 転送先に届いたヘッダー部を返す. 転送先は応答を返したあと接続を閉じない. */
+  private String forwardAndCaptureHeaders(String request) throws Exception {
+    StringBuilder received = new StringBuilder();
+    try (ServerSocket server = new ServerSocket(0)) {
+      Thread thread =
+          new Thread(
+              () -> {
+                try (Socket socket = server.accept()) {
+                  InputStream in = socket.getInputStream();
+                  while (!received.toString().endsWith("\r\n\r\n")) {
+                    int b = in.read();
+                    if (b < 0) {
+                      return;
+                    }
+                    received.append((char) b);
+                  }
+                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".getBytes());
+                  socket.getOutputStream().flush();
+                  // keep-alive 指定なら閉じずに待つ転送先を模す
+                  if (!received.toString().contains("Connection: close\r\n")) {
+                    Thread.sleep(3000);
+                  }
+                } catch (Exception e) {
+                  // テスト終了時の切断は無視
+                }
+              });
+      thread.start();
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      long start = System.currentTimeMillis();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      router.forwardReadTimeout = 5000;
+      router.forward(
+          "/fwd/x",
+          new String[] {"GET", "/fwd/x", "HTTP/1.1"},
+          new BufferedReader(new StringReader(request)),
+          out,
+          "192.0.2.1");
+      thread.join(5000);
+      assertThat(System.currentTimeMillis() - start).isLessThan(2500);
+      assertThat(out.toString()).startsWith("HTTP/1.1 200 OK");
+      return received.toString();
+    }
+  }
+
+  @Test
+  public void forwardReplacesConnectionAndAddsForwardedHeaders() throws Exception {
+    String received =
+        forwardAndCaptureHeaders(
+            "Host: example.com\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n"
+                + "X-Forwarded-For: 198.51.100.7\r\nX-Forwarded-Proto: https\r\n\r\n");
+
+    assertThat(received).contains("Connection: close\r\n");
+    assertThat(received).doesNotContain("keep-alive").doesNotContain("Keep-Alive");
+    assertThat(received).contains("X-Forwarded-For: 198.51.100.7, 192.0.2.1\r\n");
+    assertThat(received).contains("X-Forwarded-Proto: http\r\n").doesNotContain("https");
+    assertThat(received).contains("X-Forwarded-Host: example.com\r\n");
+  }
+
+  @Test
+  public void forwardRejectsTransferEncoding() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      assertThat(forward("Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"))
+          .startsWith("HTTP/1.1 501");
+    }
   }
 
   @Test

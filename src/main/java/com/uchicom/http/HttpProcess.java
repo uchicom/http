@@ -59,7 +59,7 @@ public class HttpProcess implements ServerProcess {
       String[] urls = heads[1].split("\\?");
       String fileName = StaticHandler.normalize(urls[0]);
       if (router.isForward(fileName)) {
-        router.forward(fileName, heads, br, os);
+        router.forward(fileName, heads, br, os, socket.getInetAddress().getHostAddress());
         return;
       }
       Map<String, List<String>> paramMap = null;
