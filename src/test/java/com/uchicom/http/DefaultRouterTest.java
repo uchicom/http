@@ -360,7 +360,9 @@ public class DefaultRouterTest {
     router.error("404", out);
 
     String response = out.toString();
-    assertThat(response).startsWith("HTTP/1.1 404 ERR");
+    assertThat(response).startsWith("HTTP/1.1 404 Not Found\r\n");
+    assertThat(response).doesNotContain("Server:");
+    assertThat(response).contains("Content-Length: 9\r\n");
     assertThat(response).endsWith("\r\n\r\nnot found");
   }
 
@@ -370,7 +372,40 @@ public class DefaultRouterTest {
 
     router.error("500", out);
 
-    assertThat(out.toString()).isEqualTo("HTTP/1.1 500 ERR\r\n");
+    String response = out.toString();
+    assertThat(response).startsWith("HTTP/1.1 500 Internal Server Error\r\n");
+    assertThat(response).contains("Content-Length: 0\r\n");
+    assertThat(response).endsWith("\r\n\r\n");
+  }
+
+  @Test
+  public void errorTerminatesHeadersWithAndWithoutPage() throws Exception {
+    File errorDir = new File(baseDir, "error");
+    errorDir.mkdirs();
+    write(errorDir, "404.html", "nf");
+    router.createErrorMap(errorDir);
+    for (String code : new String[] {"401", "404", "502"}) {
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      router.error(code, out);
+      assertThat(out.toString()).as(code).contains("\r\n\r\n");
+    }
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    router.error("502", out);
+    assertThat(out.toString()).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
+  }
+
+  @Test
+  public void request401IsWellFormed() throws Exception {
+    write(htmlDir, ".basic", "user=pass\n");
+    write(htmlDir, "a.html", "body");
+    prepareBasic();
+
+    String response = request("/a.html", new HashMap<>());
+
+    assertThat(response).startsWith("HTTP/1.1 401 Unauthorized\r\n");
+    assertThat(response).contains("WWW-Authenticate: Basic");
+    assertThat(response).doesNotContain("Transfer-Encoding");
+    assertThat(response).endsWith("\r\n\r\n");
   }
 
   private static Properties forwardProperties(String host, String port) {
