@@ -19,7 +19,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -395,7 +397,11 @@ public class DefaultRouter implements Router {
    */
   @Override
   public void forward(
-      String filePath, String[] heads, BufferedReader reader, OutputStream outputStream)
+      String filePath,
+      String[] heads,
+      BufferedReader reader,
+      OutputStream outputStream,
+      String clientAddress)
       throws IOException {
     Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
     if (prop == null) {
@@ -416,32 +422,31 @@ public class DefaultRouter implements Router {
       return;
     }
     // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
-    // 転送先から応答を返し始めたあとは、ステータスを書けないので接続を閉じるだけにする
-    boolean responded = false;
-    try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(host, port), forwardConnectTimeout);
-      socket.setSoTimeout(forwardReadTimeout);
-      OutputStream os = socket.getOutputStream();
-      os.write(
-          (heads[0] + " " + heads[1] + " " + heads[2] + "\r\n")
-              .getBytes(StandardCharsets.ISO_8859_1));
-      int contentLength = 0;
-      int headerCount = 0;
-      String line;
-      try {
-        line = LineReader.readLine(reader);
-      } catch (LineReader.LineTooLongException e) {
+    // 先にヘッダーを検証し、転送先には不完全なリクエストを送らない
+    int contentLength = 0;
+    int headerCount = 0;
+    String hostHeader = null;
+    String forwardedFor = null;
+    List<String> headers = new ArrayList<>();
+    String line;
+    try {
+      line = LineReader.readLine(reader);
+    } catch (LineReader.LineTooLongException e) {
+      error("431", outputStream);
+      return;
+    }
+    while (line != null && !"".equals(line)) {
+      if (++headerCount > Constants.MAX_HEADER_COUNT) {
         error("431", outputStream);
         return;
       }
-      while (line != null && !"".equals(line)) {
-        if (++headerCount > Constants.MAX_HEADER_COUNT) {
-          error("431", outputStream);
-          return;
-        }
-        if (line.regionMatches(true, 0, "Content-Length:", 0, 15)) {
+      int index = line.indexOf(':');
+      String name = index > 0 ? line.substring(0, index).trim().toLowerCase(Locale.ROOT) : "";
+      String value = index > 0 ? line.substring(index + 1).trim() : "";
+      switch (name) {
+        case "content-length":
           try {
-            contentLength = Integer.parseInt(line.substring(15).trim());
+            contentLength = Integer.parseInt(value);
           } catch (NumberFormatException e) {
             error("400", outputStream);
             return;
@@ -450,16 +455,60 @@ public class DefaultRouter implements Router {
             error("400", outputStream);
             return;
           }
-        }
-        os.write((line + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
-        try {
-          line = LineReader.readLine(reader);
-        } catch (LineReader.LineTooLongException e) {
-          error("431", outputStream);
+          headers.add(line);
+          break;
+        case "transfer-encoding":
+          // chunked などのボディは解釈しないので明示的に拒否する
+          error("501", outputStream);
           return;
-        }
+        case "connection":
+        case "keep-alive":
+        case "proxy-connection":
+          break;
+        case "x-forwarded-for":
+          forwardedFor = forwardedFor == null ? value : forwardedFor + ", " + value;
+          break;
+        case "x-forwarded-proto":
+        case "x-forwarded-host":
+          // クライアントによる詐称を避けるため自前の値で置き換える
+          break;
+        case "host":
+          hostHeader = value;
+          headers.add(line);
+          break;
+        default:
+          headers.add(line);
+          break;
       }
-      os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+      try {
+        line = LineReader.readLine(reader);
+      } catch (LineReader.LineTooLongException e) {
+        error("431", outputStream);
+        return;
+      }
+    }
+    headers.add(
+        "X-Forwarded-For: " + (forwardedFor == null ? "" : forwardedFor + ", ") + clientAddress);
+    headers.add("X-Forwarded-Proto: http");
+    if (hostHeader != null) {
+      headers.add("X-Forwarded-Host: " + hostHeader);
+    }
+    headers.add("Connection: close");
+    // 転送先から応答を返し始めたあとは、ステータスを書けないので接続を閉じるだけにする
+    boolean responded = false;
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), forwardConnectTimeout);
+      socket.setSoTimeout(forwardReadTimeout);
+      OutputStream os = socket.getOutputStream();
+      StringBuilder sb =
+          new StringBuilder(heads[0]).append(' ').append(heads[1]).append(' ').append(heads[2]);
+      sb.append("\r\n");
+      for (String header : headers) {
+        sb.append(header).append("\r\n");
+      }
+      sb.append("\r\n");
+      os.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
+      // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
       if (contentLength > 0) {
         char[] chars = new char[contentLength];
         int index = 0;
