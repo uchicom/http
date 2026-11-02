@@ -37,10 +37,11 @@ public class DefaultRouter implements Router {
   protected final Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
   protected final Map<String, File> errorMap = new ConcurrentHashMap<>();
 
-  protected int htmlFileLength;
-
   /** 公開ディレクトリ(正規化済みの絶対パス) */
   protected Path htmlPath;
+
+  /** 公開ディレクトリの実パス(シンボリックリンク・大文字小文字・短縮名を解決済み。解決できない場合はhtmlPathと同じ) */
+  protected Path htmlRealPath;
 
   /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
   protected long cacheSize;
@@ -66,8 +67,8 @@ public class DefaultRouter implements Router {
   }
 
   void setHtmlDir(File htmlFile) {
-    htmlFileLength = htmlFile.toURI().getPath().length();
     htmlPath = htmlFile.toPath().toAbsolutePath().normalize();
+    htmlRealPath = toRealPathOrSelf(htmlPath);
   }
 
   /**
@@ -101,21 +102,35 @@ public class DefaultRouter implements Router {
     } else {
       webFile = new WebFile(file, 0);
     }
-    webFile.setBasic(basicMap.get(directoryKey(path)));
+    webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
     return webFile;
   }
 
   /**
-   * 解決済みのファイルパスから、公開ディレクトリからの相対ディレクトリキー(`/`始まり`/`終わり)を作る.
+   * ディレクトリから、公開ディレクトリからの相対ディレクトリキー(`/`始まり`/`終わり)を作る.
    *
-   * <p>リクエスト文字列(`//`や`\`を含みうる)ではなく解決後のパスから作ることで、表記ゆれによる認証の迂回を防ぐ.
+   * <p>リクエスト文字列ではなく、実パスの表記(大文字小文字など)から作ることで、表記ゆれによる認証の迂回を防ぐ.
+   * 公開ディレクトリの外に解決される(シンボリックリンクなど)場合は、論理パスから作る.
    */
-  private String directoryKey(Path resolvedFile) {
-    String relative = htmlPath.relativize(resolvedFile.getParent()).toString();
+  String directoryKey(Path directory) {
+    Path absolute = directory.toAbsolutePath().normalize();
+    Path real = toRealPathOrSelf(absolute);
+    String relative =
+        real.startsWith(htmlRealPath)
+            ? htmlRealPath.relativize(real).toString()
+            : htmlPath.relativize(absolute).toString();
     if (relative.isEmpty()) {
       return "/";
     }
     return "/" + relative.replace(File.separatorChar, '/') + "/";
+  }
+
+  private static Path toRealPathOrSelf(Path path) {
+    try {
+      return path.toRealPath();
+    } catch (IOException e) {
+      return path;
+    }
   }
 
   /**
@@ -269,8 +284,7 @@ public class DefaultRouter implements Router {
       if (file.getName().startsWith(".")) {
         // 隠しファイルは表示しない
         if (".basic".equals(file.getName())) {
-          String relativePath =
-              file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+          String relativePath = directoryKey(file.getParentFile().toPath());
           // Basicファイル認証がある場合
           try (FileInputStream fis = new FileInputStream(file)) {
             Properties properties = new Properties();
@@ -282,8 +296,7 @@ public class DefaultRouter implements Router {
             e.printStackTrace();
           }
         } else if (".forward".equals(file.getName())) {
-          String relativePath =
-              file.getParentFile().toURI().getPath().substring(htmlFileLength - 1);
+          String relativePath = directoryKey(file.getParentFile().toPath());
           try (FileInputStream fis = new FileInputStream(file)) {
             Properties properties = new Properties();
             properties.load(fis);
