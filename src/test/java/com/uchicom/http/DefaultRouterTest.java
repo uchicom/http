@@ -2,12 +2,10 @@
 package com.uchicom.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.net.ServerSocket;
@@ -530,7 +528,45 @@ public class DefaultRouterTest {
     }
     router.forwardMap.put("/fwd/", forwardProperties("localhost", String.valueOf(port)));
 
-    // 接続できない場合は例外を呼び出し元に伝える(ソケットはリークしない)
-    assertThatThrownBy(() -> forward("\r\n")).isInstanceOf(IOException.class);
+    assertThat(forward("\r\n")).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
+  }
+
+  @Test
+  public void forwardReadTimeout() throws Exception {
+    router.forwardReadTimeout = 200;
+    try (ServerSocket server = new ServerSocket(0)) {
+      // 接続は受け付けるが応答しない
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      assertThat(forward("\r\n")).startsWith("HTTP/1.1 504 Gateway Timeout\r\n");
+    }
+  }
+
+  @Test
+  public void forwardFailureAfterResponseStartedOnlyCloses() throws Exception {
+    router.forwardReadTimeout = 200;
+    try (ServerSocket server = new ServerSocket(0)) {
+      Thread thread =
+          new Thread(
+              () -> {
+                try (Socket socket = server.accept()) {
+                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n".getBytes());
+                  socket.getOutputStream().flush();
+                  // 続きを返さず待つ
+                  Thread.sleep(1000);
+                } catch (Exception e) {
+                  // テスト終了時の切断は無視
+                }
+              });
+      thread.start();
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+
+      String response = forward("\r\n");
+      thread.join(5000);
+
+      assertThat(response).isEqualTo("HTTP/1.1 200 OK\r\n");
+    }
   }
 }
