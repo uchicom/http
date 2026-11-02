@@ -101,8 +101,21 @@ public class DefaultRouter implements Router {
     } else {
       webFile = new WebFile(file, 0);
     }
-    webFile.setBasic(basicMap.get(filePath.substring(0, filePath.lastIndexOf('/') + 1)));
+    webFile.setBasic(basicMap.get(directoryKey(path)));
     return webFile;
+  }
+
+  /**
+   * 解決済みのファイルパスから、公開ディレクトリからの相対ディレクトリキー(`/`始まり`/`終わり)を作る.
+   *
+   * <p>リクエスト文字列(`//`や`\`を含みうる)ではなく解決後のパスから作ることで、表記ゆれによる認証の迂回を防ぐ.
+   */
+  private String directoryKey(Path resolvedFile) {
+    String relative = htmlPath.relativize(resolvedFile.getParent()).toString();
+    if (relative.isEmpty()) {
+      return "/";
+    }
+    return "/" + relative.replace(File.separatorChar, '/') + "/";
   }
 
   /**
@@ -135,11 +148,11 @@ public class DefaultRouter implements Router {
   /**
    * Basic認証を検証する. ヘッダーが不正な場合も例外にせず、認証失敗として扱う.
    *
-   * @param fileName リクエスト対象のファイルパス
+   * @param webFile リクエスト対象のファイル(認証情報を保持している)
    * @param headMap リクエストヘッダー
    * @return 認証できた場合true
    */
-  boolean authenticate(String fileName, Map<String, String> headMap) {
+  boolean authenticate(WebFile webFile, Map<String, String> headMap) {
     String authorization = headMap.get("Authorization");
     if (authorization == null) {
       return false;
@@ -161,7 +174,7 @@ public class DefaultRouter implements Router {
     if (index < 0) {
       return false;
     }
-    Properties prop = basicMap.get(fileName.substring(0, fileName.lastIndexOf('/') + 1));
+    Properties prop = webFile.getBasic();
     if (prop == null) {
       return false;
     }
@@ -196,7 +209,7 @@ public class DefaultRouter implements Router {
     }
     try (PrintStream ps = new PrintStream(outputStream); ) {
       if (file.isBasic()) {
-        if (!authenticate(fileName, headMap)) {
+        if (!authenticate(file, headMap)) {
           // 認証エラー
           ps.print("HTTP/1.1 401 Authorization Required\r\n");
           ps.print("Date: ");

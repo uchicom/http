@@ -143,6 +143,10 @@ public class WebFile {
     ps.write(current.bytes);
   }
 
+  public Properties getBasic() {
+    return basic;
+  }
+
   public boolean isBasic() {
     return basic != null;
   }
