@@ -10,14 +10,23 @@ import java.io.OutputStream;
  */
 public class IOThrougher implements Runnable {
 
+  private static final int BUFFER_SIZE = 8 * 1024;
+
   private InputStream is;
   private OutputStream os;
-  private String key;
+  private Runnable onActivity;
 
-  public IOThrougher(InputStream is, OutputStream os, String key) {
+  public IOThrougher(InputStream is, OutputStream os) {
+    this(is, os, null);
+  }
+
+  /**
+   * @param onActivity データを中継するたびに呼ばれる処理(null可)
+   */
+  public IOThrougher(InputStream is, OutputStream os, Runnable onActivity) {
     this.is = is;
     this.os = os;
-    this.key = key;
+    this.onActivity = onActivity;
   }
 
   /* (非 Javadoc)
@@ -26,14 +35,17 @@ public class IOThrougher implements Runnable {
   @Override
   public void run() {
     int length = 0;
-    byte[] bytes = new byte[4 * 1024 * 1024];
+    byte[] bytes = new byte[BUFFER_SIZE];
     try {
       while ((length = is.read(bytes)) > 0) {
         os.write(bytes, 0, length);
         os.flush();
+        if (onActivity != null) {
+          onActivity.run();
+        }
       }
     } catch (IOException e) {
-      e.printStackTrace();
+      // 相手の切断・自側のクローズによる終了は正常系として扱う
     }
   }
 }

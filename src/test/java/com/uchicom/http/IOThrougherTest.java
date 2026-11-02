@@ -14,7 +14,7 @@ public class IOThrougherTest {
     byte[] data = "hello through".getBytes();
     ByteArrayOutputStream os = new ByteArrayOutputStream();
 
-    new IOThrougher(new ByteArrayInputStream(data), os, "key").run();
+    new IOThrougher(new ByteArrayInputStream(data), os).run();
 
     assertThat(os.toByteArray()).isEqualTo(data);
   }

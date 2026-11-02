@@ -17,6 +17,7 @@ import java.io.PrintStream;
 public class HttpParameter extends Parameter {
 
   private Router router;
+  private ProxyConfig proxyConfig;
 
   public HttpParameter(String[] args) {
     super(args);
@@ -65,6 +66,13 @@ public class HttpParameter extends Parameter {
       }
     }
     router.init(getFile("dir"), cacheSize);
+
+    if ("proxy".equals(get("type"))) {
+      proxyConfig = ProxyConfig.create(this, ps);
+      if (proxyConfig == null) {
+        return false;
+      }
+    }
 
     return true;
   }
@@ -117,7 +125,7 @@ public class HttpParameter extends Parameter {
             new MultiSocketServer(
                 this,
                 (parameter, socket) -> {
-                  return new ProxyHttpServerProcess(parameter, socket);
+                  return new ProxyHttpServerProcess(proxyConfig, socket);
                 });
         break;
     }
