@@ -228,6 +228,21 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void requestBasicIsNotBypassedByDoubleSlash() throws Exception {
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+
+    for (String path : new String[] {"/secret//a.html", "/secret///a.html"}) {
+      assertThat(request(path, new HashMap<>())).as(path).startsWith("HTTP/1.1 401");
+      assertThat(router.find(path).isBasic()).as(path).isTrue();
+      assertThat(request(path, authHeader("user:pass"))).as(path).startsWith("HTTP/1.1 200");
+    }
+  }
+
+  @Test
   public void requestBasicWithValidAuthorization() throws Exception {
     write(htmlDir, ".basic", "user=pass\n");
     write(htmlDir, "a.html", "body");
@@ -273,7 +288,9 @@ public class DefaultRouterTest {
 
   @Test
   public void authenticateWithoutBasicProperties() throws Exception {
-    assertThat(router.authenticate("/a.html", authHeader("user:pass"))).isFalse();
+    assertThat(
+            router.authenticate(new WebFile(new File(htmlDir, "a.html")), authHeader("user:pass")))
+        .isFalse();
   }
 
   @Test
