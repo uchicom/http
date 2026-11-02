@@ -498,6 +498,48 @@ public class DefaultRouterTest {
     }
   }
 
+  private static String basicHeader(String userPass) {
+    return "Authorization: Basic "
+        + Base64.getEncoder().encodeToString(userPass.getBytes(StandardCharsets.UTF_8))
+        + "\r\n";
+  }
+
+  private void putForwardBasic() {
+    Properties basic = new Properties();
+    basic.setProperty("user", "pass");
+    router.basicMap.put("/fwd/", basic);
+  }
+
+  @Test
+  public void forwardWithBasicRejectsMissingOrWrongCredentials() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      putForwardBasic();
+
+      String none = forward("\r\n");
+      assertThat(none).startsWith("HTTP/1.1 401 Unauthorized\r\n");
+      assertThat(none).contains("WWW-Authenticate: Basic");
+      assertThat(forward(basicHeader("user:wrong") + "\r\n")).startsWith("HTTP/1.1 401");
+    }
+  }
+
+  @Test
+  public void forwardWithBasicDropsAuthorizationOnSuccess() throws Exception {
+    putForwardBasic();
+
+    String received = forwardAndCaptureHeaders(basicHeader("user:pass") + "\r\n");
+
+    assertThat(received).doesNotContain("Authorization");
+  }
+
+  @Test
+  public void forwardWithoutBasicKeepsAuthorization() throws Exception {
+    String received = forwardAndCaptureHeaders(basicHeader("user:pass") + "\r\n");
+
+    assertThat(received).contains("Authorization: Basic ");
+  }
+
   @Test
   public void forwardWithoutSetting() throws Exception {
     assertThat(forward("\r\n")).startsWith("HTTP/1.1 404");

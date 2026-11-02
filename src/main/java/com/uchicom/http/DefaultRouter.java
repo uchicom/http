@@ -403,7 +403,8 @@ public class DefaultRouter implements Router {
       OutputStream outputStream,
       String clientAddress)
       throws IOException {
-    Properties prop = forwardMap.get(filePath.substring(0, filePath.indexOf('/', 1) + 1));
+    String forwardKey = filePath.substring(0, filePath.indexOf('/', 1) + 1);
+    Properties prop = forwardMap.get(forwardKey);
     if (prop == null) {
       error("404", outputStream);
       return;
@@ -427,6 +428,9 @@ public class DefaultRouter implements Router {
     int headerCount = 0;
     String hostHeader = null;
     String forwardedFor = null;
+    String authorization = null;
+    // .forward と同じディレクトリ直下の .basic がある場合のみ認証する
+    Properties basic = basicMap.get(forwardKey);
     List<String> headers = new ArrayList<>();
     String line;
     try {
@@ -476,6 +480,15 @@ public class DefaultRouter implements Router {
           hostHeader = value;
           headers.add(line);
           break;
+        case "authorization":
+          if (basic == null) {
+            // .basic がなければ転送先の認証用にそのまま転送する
+            headers.add(line);
+          } else if (authorization == null) {
+            // .basic の資格情報は転送先に渡さない
+            authorization = value;
+          }
+          break;
         default:
           headers.add(line);
           break;
@@ -486,6 +499,10 @@ public class DefaultRouter implements Router {
         error("431", outputStream);
         return;
       }
+    }
+    if (basic != null && !BasicAuthenticator.authenticate(authorization, basic)) {
+      error("401", "WWW-Authenticate: Basic realm=\"SECRET AREA\"\r\n", outputStream);
+      return;
     }
     headers.add(
         "X-Forwarded-For: " + (forwardedFor == null ? "" : forwardedFor + ", ") + clientAddress);
