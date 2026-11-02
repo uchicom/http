@@ -6,6 +6,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
+ * 入力を出力へ中継する.
+ *
  * @author uchicom: Shigeki Uchiyama
  */
 public class IOThrougher implements Runnable {
@@ -29,9 +31,6 @@ public class IOThrougher implements Runnable {
     this.onActivity = onActivity;
   }
 
-  /* (非 Javadoc)
-   * @see java.lang.Runnable#run()
-   */
   @Override
   public void run() {
     int length = 0;

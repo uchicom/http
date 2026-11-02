@@ -37,26 +37,17 @@ public class ProxyHttpServerProcess implements ServerProcess {
     this.socket = socket;
   }
 
-  /* (非 Javadoc)
-   * @see com.uchicom.server.ServerProcess#getLastTime()
-   */
   @Override
   public long getLastTime() {
     return lastTime;
   }
 
-  /* (非 Javadoc)
-   * @see com.uchicom.server.ServerProcess#forceClose()
-   */
   @Override
   public void forceClose() {
     close(socket);
     close(send);
   }
 
-  /* (非 Javadoc)
-   * @see com.uchicom.server.ServerProcess#execute()
-   */
   @Override
   public void execute() {
     try {

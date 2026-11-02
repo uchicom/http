@@ -39,7 +39,7 @@ public class HttpProcessTest {
 
     new HttpProcess(router, socket).execute();
 
-    return out.toString();
+    return out.toString(StandardCharsets.UTF_8);
   }
 
   private String ifModifiedSince(long plusSeconds) {

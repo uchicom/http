@@ -41,7 +41,7 @@ public class ProxyConfig {
   public static ProxyConfig create(Parameter parameter, PrintStream ps) {
     Set<Integer> ports = new HashSet<>();
     if (parameter.is("proxy_ports")) {
-      for (String port : parameter.get("proxy_ports").split(",")) {
+      for (String port : parameter.get("proxy_ports").split(",", 0)) {
         try {
           int value = Integer.parseInt(port.trim());
           if (value < 1 || value > 65535) {

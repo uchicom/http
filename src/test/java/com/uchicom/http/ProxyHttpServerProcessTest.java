@@ -198,12 +198,15 @@ public class ProxyHttpServerProcessTest {
 
   @Test
   public void isPrivate() throws Exception {
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("127.0.0.1"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("10.1.2.3"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("169.254.169.254"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("100.64.0.1"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("fd00::1"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("::1"))).isTrue();
-    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getByName("93.184.216.34"))).isFalse();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("127.0.0.1")[0])).isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("10.1.2.3")[0])).isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("169.254.169.254")[0]))
+        .isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("100.64.0.1")[0]))
+        .isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("fd00::1")[0])).isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("::1")[0])).isTrue();
+    assertThat(ProxyHttpServerProcess.isPrivate(InetAddress.getAllByName("93.184.216.34")[0]))
+        .isFalse();
   }
 }

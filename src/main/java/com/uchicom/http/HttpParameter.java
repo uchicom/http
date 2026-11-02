@@ -78,57 +78,23 @@ public class HttpParameter extends Parameter {
   }
 
   public Server createServer() {
-    Server server = null;
-    switch (get("type")) {
-      case "multi":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "pool":
-        server =
-            new PoolSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "virtual":
-        server =
-            new VirtualSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "single":
-        server =
-            new SingleSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new HttpProcess(router, socket);
-                });
-        break;
-      case "redirect":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new RedirectHttpServerProcess(parameter, router, socket);
-                });
-        break;
-      case "proxy":
-        server =
-            new MultiSocketServer(
-                this,
-                (parameter, socket) -> {
-                  return new ProxyHttpServerProcess(proxyConfig, socket);
-                });
-        break;
-    }
-    return server;
+    return switch (get("type")) {
+      case "multi" ->
+          new MultiSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "pool" ->
+          new PoolSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "virtual" ->
+          new VirtualSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "single" ->
+          new SingleSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+      case "redirect" ->
+          new MultiSocketServer(
+              this,
+              (parameter, socket) -> new RedirectHttpServerProcess(parameter, router, socket));
+      case "proxy" ->
+          new MultiSocketServer(
+              this, (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket));
+      default -> null;
+    };
   }
 }

@@ -4,7 +4,6 @@ package com.uchicom.http;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -17,6 +16,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
@@ -25,11 +25,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
+ * 静的ファイルの配信・認証・転送を行う標準のRouter.
+ *
  * @author Uchiyama Shigeki
  */
 public class DefaultRouter implements Router {
+
+  private static final Logger LOGGER = Logger.getLogger(DefaultRouter.class.getName());
 
   /** キャッシュ内容を保持するため、リクエストをまたいで使い回すWebFile(キャッシュ有効時のみ使用) */
   protected final Map<String, WebFile> webFileMap = new ConcurrentHashMap<>();
@@ -53,11 +59,6 @@ public class DefaultRouter implements Router {
   /** forward先からの読み込みタイムアウト(ミリ秒) */
   protected int forwardReadTimeout = 30000;
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#init(java.io.File)
-   */
   @Override
   public void init(File baseFile, long cacheSize) {
     this.cacheSize = cacheSize;
@@ -82,7 +83,7 @@ public class DefaultRouter implements Router {
     if (!filePath.startsWith("/") || filePath.indexOf('\\') >= 0) {
       return null;
     }
-    for (String name : filePath.split("/")) {
+    for (String name : filePath.split("/", 0)) {
       if (name.startsWith(".")) {
         return null;
       }
@@ -98,7 +99,7 @@ public class DefaultRouter implements Router {
       return null;
     }
     File file = path.toFile();
-    if (!file.isFile()) {
+    if (!file.isFile() || !isPublicRealPath(path)) {
       webFileMap.remove(filePath);
       return null;
     }
@@ -110,6 +111,21 @@ public class DefaultRouter implements Router {
     }
     webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
     return webFile;
+  }
+
+  /**
+   * 実パス(シンボリックリンク・8.3短縮名などを解決済み)が、公開ディレクトリ内で、かつ`.`で始まる名前を含まないか確認する.
+   *
+   * <p>リクエストの表記では隠しファイルと分からない短縮名や、公開ディレクトリ外へのシンボリックリンクを拒否する.
+   */
+  private boolean isPublicRealPath(Path path) {
+    Path real;
+    try {
+      real = path.toRealPath();
+    } catch (IOException e) {
+      return false;
+    }
+    return real.startsWith(htmlRealPath) && !containsHiddenName(htmlRealPath.relativize(real));
   }
 
   /** 相対パスの各要素に`.`で始まるものがあるか(解決後の最終確認). */
@@ -166,11 +182,6 @@ public class DefaultRouter implements Router {
         .isAfter(Instant.from(ifModified));
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#exists(java.lang.String)
-   */
   @Override
   public boolean exists(String filePath) {
     return find(filePath) != null;
@@ -187,12 +198,6 @@ public class DefaultRouter implements Router {
     return BasicAuthenticator.authenticate(headMap.get("Authorization"), webFile.getBasic());
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#request(java.lang.String,
-   * java.util.Map, java.io.OutputStream)
-   */
   @Override
   public void request(
       String fileName,
@@ -219,7 +224,7 @@ public class DefaultRouter implements Router {
       long len = file.length();
       ps.print("HTTP/1.1 200 OK \r\n");
       ps.print("Date: ");
-      ps.print(Constants.formatter.format(OffsetDateTime.now()));
+      ps.print(Constants.formatter.format(OffsetDateTime.now(ZoneOffset.UTC)));
       ps.print("\r\n");
       ps.print("Accept-Ranges: none\r\n");
       ps.print("Connection: close\r\n");
@@ -252,7 +257,7 @@ public class DefaultRouter implements Router {
   /**
    * ディレクトリ配下の設定ファイル(.basic, .forward)を読み込む。
    *
-   * @param file
+   * @param file 設定ファイルを探すファイルまたはディレクトリ
    */
   public void loadSettings(File file) {
     if (file.isFile()) {
@@ -265,10 +270,8 @@ public class DefaultRouter implements Router {
             Properties properties = new Properties();
             properties.load(fis);
             basicMap.put(relativePath, properties);
-          } catch (FileNotFoundException e) {
-            e.printStackTrace();
           } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
           }
         } else if (".forward".equals(file.getName())) {
           String relativePath = directoryKey(file.getParentFile().toPath());
@@ -276,10 +279,8 @@ public class DefaultRouter implements Router {
             Properties properties = new Properties();
             properties.load(fis);
             forwardMap.put(relativePath, properties);
-          } catch (FileNotFoundException e) {
-            e.printStackTrace();
           } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
           }
         }
       }
@@ -302,12 +303,6 @@ public class DefaultRouter implements Router {
     }
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see com.uchicom.server.http.Router#error(java.lang.String,
-   * java.io.OutputStream)
-   */
   @Override
   public void error(String code, OutputStream outputStream) throws IOException {
     error(code, "", outputStream);
@@ -328,7 +323,7 @@ public class DefaultRouter implements Router {
       ps.print(reasonPhrase(code));
       ps.print("\r\n");
       ps.print("Date: ");
-      ps.print(Constants.formatter.format(OffsetDateTime.now()));
+      ps.print(Constants.formatter.format(OffsetDateTime.now(ZoneOffset.UTC)));
       ps.print("\r\n");
       ps.print(extraHeaders);
       ps.print("Connection: close\r\n");
@@ -353,48 +348,26 @@ public class DefaultRouter implements Router {
   }
 
   static String reasonPhrase(String code) {
-    switch (code) {
-      case "400":
-        return "Bad Request";
-      case "401":
-        return "Unauthorized";
-      case "403":
-        return "Forbidden";
-      case "404":
-        return "Not Found";
-      case "405":
-        return "Method Not Allowed";
-      case "408":
-        return "Request Timeout";
-      case "411":
-        return "Length Required";
-      case "413":
-        return "Payload Too Large";
-      case "414":
-        return "URI Too Long";
-      case "431":
-        return "Request Header Fields Too Large";
-      case "500":
-        return "Internal Server Error";
-      case "501":
-        return "Not Implemented";
-      case "502":
-        return "Bad Gateway";
-      case "503":
-        return "Service Unavailable";
-      case "504":
-        return "Gateway Timeout";
-      default:
-        return "Error";
-    }
+    return switch (code) {
+      case "400" -> "Bad Request";
+      case "401" -> "Unauthorized";
+      case "403" -> "Forbidden";
+      case "404" -> "Not Found";
+      case "405" -> "Method Not Allowed";
+      case "408" -> "Request Timeout";
+      case "411" -> "Length Required";
+      case "413" -> "Payload Too Large";
+      case "414" -> "URI Too Long";
+      case "431" -> "Request Header Fields Too Large";
+      case "500" -> "Internal Server Error";
+      case "501" -> "Not Implemented";
+      case "502" -> "Bad Gateway";
+      case "503" -> "Service Unavailable";
+      case "504" -> "Gateway Timeout";
+      default -> "Error";
+    };
   }
 
-  /*
-   * (非 Javadoc)
-   *
-   * @see com.uchicom.http.Router#forward(java.io.BufferedReader,
-   * java.io.OutputStream)
-   */
   @Override
   public void forward(
       String filePath,
@@ -448,7 +421,7 @@ public class DefaultRouter implements Router {
       String name = index > 0 ? line.substring(0, index).trim().toLowerCase(Locale.ROOT) : "";
       String value = index > 0 ? line.substring(index + 1).trim() : "";
       switch (name) {
-        case "content-length":
+        case "content-length" -> {
           try {
             contentLength = Integer.parseInt(value);
           } catch (NumberFormatException e) {
@@ -460,27 +433,23 @@ public class DefaultRouter implements Router {
             return;
           }
           headers.add(line);
-          break;
-        case "transfer-encoding":
+        }
+        case "transfer-encoding" -> {
           // chunked などのボディは解釈しないので明示的に拒否する
           error("501", outputStream);
           return;
-        case "connection":
-        case "keep-alive":
-        case "proxy-connection":
-          break;
-        case "x-forwarded-for":
-          forwardedFor = forwardedFor == null ? value : forwardedFor + ", " + value;
-          break;
-        case "x-forwarded-proto":
-        case "x-forwarded-host":
+        }
+        case "connection", "keep-alive", "proxy-connection" -> {}
+        case "x-forwarded-for" ->
+            forwardedFor = forwardedFor == null ? value : forwardedFor + ", " + value;
+        case "x-forwarded-proto", "x-forwarded-host" -> {
           // クライアントによる詐称を避けるため自前の値で置き換える
-          break;
-        case "host":
+        }
+        case "host" -> {
           hostHeader = value;
           headers.add(line);
-          break;
-        case "authorization":
+        }
+        case "authorization" -> {
           if (basic == null) {
             // .basic がなければ転送先の認証用にそのまま転送する
             headers.add(line);
@@ -488,10 +457,8 @@ public class DefaultRouter implements Router {
             // .basic の資格情報は転送先に渡さない
             authorization = value;
           }
-          break;
-        default:
-          headers.add(line);
-          break;
+        }
+        default -> headers.add(line);
       }
       try {
         line = LineReader.readLine(reader);
@@ -553,11 +520,6 @@ public class DefaultRouter implements Router {
     }
   }
 
-  /*
-   * (非 Javadoc)
-   *
-   * @see com.uchicom.http.Router#isForward(java.lang.String)
-   */
   @Override
   public boolean isForward(String filePath) {
     return forwardMap.containsKey(filePath.substring(0, filePath.indexOf('/', 1) + 1));

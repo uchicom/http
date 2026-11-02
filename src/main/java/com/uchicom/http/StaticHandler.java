@@ -3,7 +3,9 @@ package com.uchicom.http;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
 import java.util.List;
@@ -54,11 +56,14 @@ public class StaticHandler {
     }
     TemporalAccessor ifModified = parseIfModifiedSince(headMap.get("If-Modified-Since"));
     if (ifModified != null && router.isNotModified(fileName, ifModified)) {
-      os.write("HTTP/1.1 304 Not Modified \r\n".getBytes());
-      os.write("Date: ".getBytes());
-      os.write(Constants.formatter.format(OffsetDateTime.now()).getBytes());
-      os.write("\r\n".getBytes());
-      os.write("\r\n".getBytes());
+      os.write("HTTP/1.1 304 Not Modified \r\n".getBytes(StandardCharsets.ISO_8859_1));
+      os.write("Date: ".getBytes(StandardCharsets.ISO_8859_1));
+      os.write(
+          Constants.formatter
+              .format(OffsetDateTime.now(ZoneOffset.UTC))
+              .getBytes(StandardCharsets.ISO_8859_1));
+      os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+      os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
       return;
     }
     router.request(fileName, paramMap, headMap, os);
@@ -71,7 +76,7 @@ public class StaticHandler {
     try {
       return Constants.formatter.parse(value);
     } catch (DateTimeParseException e) {
-      e.printStackTrace();
+      // クライアントが不正な値を送った場合は、条件なしのリクエストとして扱う
       return null;
     }
   }

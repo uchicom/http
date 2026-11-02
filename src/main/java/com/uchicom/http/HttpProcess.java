@@ -11,12 +11,14 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class HttpProcess implements ServerProcess {
+
+  private static final Logger LOGGER = Logger.getLogger(HttpProcess.class.getName());
 
   private Socket socket;
 
@@ -44,19 +46,17 @@ public class HttpProcess implements ServerProcess {
       try {
         socket.close();
       } catch (IOException e) {
-        // TODO 自動生成された catch ブロック
-        e.printStackTrace();
-      } // TODO これabstractだな
+        LOGGER.log(Level.WARNING, "socket can not be closed", e);
+      }
     }
-    ;
   }
 
   public void head(String head, BufferedReader br, OutputStream os) throws IOException {
 
-    String[] heads = head.split(" ");
+    String[] heads = head.split(" ", 0);
     if (heads.length == 3) {
       // 初期応答行を返却する
-      String[] urls = heads[1].split("\\?");
+      String[] urls = heads[1].split("\\?", 0);
       String fileName = StaticHandler.normalize(urls[0]);
       if (router.isForward(fileName)) {
         router.forward(fileName, heads, br, os, socket.getInetAddress().getHostAddress());
@@ -152,15 +152,15 @@ public class HttpProcess implements ServerProcess {
       br.close();
       os.close();
     } catch (IOException e) {
-      e.printStackTrace();
+      LOGGER.log(Level.WARNING, "request can not be processed", e);
     } catch (Throwable e) {
-      e.printStackTrace();
+      LOGGER.log(Level.SEVERE, "unexpected error", e);
     } finally {
       if (socket != null) {
         try {
           socket.close();
         } catch (Exception e) {
-          e.printStackTrace();
+          LOGGER.log(Level.WARNING, "socket can not be closed", e);
         } finally {
           socket = null;
         }
@@ -171,14 +171,14 @@ public class HttpProcess implements ServerProcess {
   public Map<String, List<String>> createGetParamMap(String get) {
     String[] keyValues;
     try {
-      keyValues = URLDecoder.decode(get, "utf-8").split("&");
-    } catch (Exception e) {
-      e.printStackTrace();
-      keyValues = get.split("&");
+      keyValues = URLDecoder.decode(get, StandardCharsets.UTF_8).split("&", 0);
+    } catch (IllegalArgumentException e) {
+      // 不正なエスケープはデコードせずに扱う
+      keyValues = get.split("&", 0);
     }
     Map<String, List<String>> map = new HashMap<String, List<String>>();
     for (String keyValue : keyValues) {
-      String[] split = keyValue.split("=");
+      String[] split = keyValue.split("=", 0);
       if (split.length > 1) {
         if (map.containsKey(split[0])) {
           List<String> list = map.get(split[0]);
@@ -189,12 +189,6 @@ public class HttpProcess implements ServerProcess {
           map.put(split[0], list);
         }
       }
-    }
-    Map<String, String[]> stringMap = new HashMap<String, String[]>();
-    Iterator<Entry<String, List<String>>> iterator = map.entrySet().iterator();
-    while (iterator.hasNext()) {
-      Entry<String, List<String>> entry = iterator.next();
-      stringMap.put(entry.getKey(), entry.getValue().toArray(new String[0]));
     }
     return map;
   }
