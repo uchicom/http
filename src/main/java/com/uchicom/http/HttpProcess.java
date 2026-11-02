@@ -68,8 +68,19 @@ public class HttpProcess implements ServerProcess {
         // GETパラメータありなので解析。
         paramMap = createGetParamMap(urls[1]);
       }
-      String line = br.readLine();
+      int headerCount = 0;
+      String line;
+      try {
+        line = LineReader.readLine(br);
+      } catch (LineReader.LineTooLongException e) {
+        router.error("431", os);
+        return;
+      }
       while (line != null && !"".equals(line)) {
+        if (++headerCount > Constants.MAX_HEADER_COUNT) {
+          router.error("431", os);
+          return;
+        }
         int index = line.indexOf(":");
         if (index >= 0) {
           String value = line.substring(index + 1).trim();
@@ -77,7 +88,12 @@ public class HttpProcess implements ServerProcess {
         } else {
           headMap.put(line, line);
         }
-        line = br.readLine();
+        try {
+          line = LineReader.readLine(br);
+        } catch (LineReader.LineTooLongException e) {
+          router.error("431", os);
+          return;
+        }
       }
       if (headMap.containsKey("Content-Length")) {
         int contentLength;
@@ -117,9 +133,17 @@ public class HttpProcess implements ServerProcess {
               new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
       OutputStream os = socket.getOutputStream();
       // リクエストの分解、保持
-      String head = br.readLine();
-      if (head != null) {
-        head(head, br, os);
+      String startLine;
+      try {
+        startLine = LineReader.readLine(br);
+      } catch (LineReader.LineTooLongException e) {
+        router.error("414", os);
+        br.close();
+        os.close();
+        return;
+      }
+      if (startLine != null) {
+        head(startLine, br, os);
 
       } else {
         // Bad Request

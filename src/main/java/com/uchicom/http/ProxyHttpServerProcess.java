@@ -23,8 +23,8 @@ import java.util.Locale;
  */
 public class ProxyHttpServerProcess implements ServerProcess {
 
-  private static final int MAX_LINE_LENGTH = 8 * 1024;
-  private static final int MAX_HEADER_COUNT = 100;
+  private static final int MAX_LINE_LENGTH = Constants.MAX_LINE_LENGTH;
+  private static final int MAX_HEADER_COUNT = Constants.MAX_HEADER_COUNT;
   private static final int CONNECT_TIMEOUT = 10 * 1000;
 
   private final ProxyConfig config;

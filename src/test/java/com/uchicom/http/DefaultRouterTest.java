@@ -460,6 +460,28 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void forwardRejectsTooLongHeaderLine() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      String longLine = "X-Long: " + "a".repeat(Constants.MAX_LINE_LENGTH);
+      assertThat(forward(longLine + "\r\n\r\n")).startsWith("HTTP/1.1 431");
+      // 改行なしで巨大なデータが来ても上限で打ち切る
+      assertThat(forward("a".repeat(Constants.MAX_LINE_LENGTH * 4))).startsWith("HTTP/1.1 431");
+    }
+  }
+
+  @Test
+  public void forwardRejectsTooManyHeaders() throws Exception {
+    try (ServerSocket server = new ServerSocket(0)) {
+      router.forwardMap.put(
+          "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
+      String headers = "X-A: b\r\n".repeat(Constants.MAX_HEADER_COUNT + 1);
+      assertThat(forward(headers + "\r\n")).startsWith("HTTP/1.1 431");
+    }
+  }
+
+  @Test
   public void forwardKeepsBinaryBody() throws Exception {
     byte[] body = new byte[256];
     for (int i = 0; i < body.length; i++) {
