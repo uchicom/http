@@ -113,6 +113,19 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void findRejectsBackslashPaths() throws Exception {
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, ".basic", "user=pass\n");
+    write(htmlDir, ".x", "x");
+
+    for (String path : new String[] {"/sub\\.basic", "/sub/..\\.basic", "/.\\x", "/sub\\a.txt"}) {
+      assertThat(router.exists(path)).as(path).isFalse();
+      assertThat(request(path, new HashMap<>())).as(path).doesNotStartWith("HTTP/1.1 200");
+    }
+  }
+
+  @Test
   public void findAppliesBasicToFilesAddedAfterInit() throws Exception {
     write(htmlDir, ".basic", "user=pass\n");
     router.loadSettings(htmlDir);

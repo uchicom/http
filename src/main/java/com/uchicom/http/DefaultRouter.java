@@ -75,7 +75,8 @@ public class DefaultRouter implements Router {
    * <p>公開ディレクトリ外、および`.`で始まる名前を含むパスは対象外とする. 存在しない、またはファイルでない場合はnullを返す.
    */
   WebFile find(String filePath) {
-    if (!filePath.startsWith("/")) {
+    // Windowsでは`\`が区切りとして解釈され、隠しファイル判定を迂回されるため拒否する
+    if (!filePath.startsWith("/") || filePath.indexOf('\\') >= 0) {
       return null;
     }
     for (String name : filePath.split("/")) {
@@ -89,8 +90,12 @@ public class DefaultRouter implements Router {
     } catch (InvalidPathException e) {
       return null;
     }
+    if (!path.startsWith(htmlPath) || containsHiddenName(htmlPath.relativize(path))) {
+      webFileMap.remove(filePath);
+      return null;
+    }
     File file = path.toFile();
-    if (!path.startsWith(htmlPath) || !file.isFile()) {
+    if (!file.isFile()) {
       webFileMap.remove(filePath);
       return null;
     }
@@ -102,6 +107,16 @@ public class DefaultRouter implements Router {
     }
     webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
     return webFile;
+  }
+
+  /** 相対パスの各要素に`.`で始まるものがあるか(解決後の最終確認). */
+  private static boolean containsHiddenName(Path relative) {
+    for (Path name : relative) {
+      if (name.toString().startsWith(".")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
