@@ -33,7 +33,6 @@ public class IOThrougher implements Runnable {
         os.flush();
       }
     } catch (IOException e) {
-      System.out.println("key:" + key);
       e.printStackTrace();
     }
   }

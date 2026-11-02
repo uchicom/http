@@ -50,7 +50,6 @@ public class ProxyHttpServerProcess implements ServerProcess {
    */
   @Override
   public void execute() {
-    System.out.println("execute");
     try {
       InputStream is = socket.getInputStream();
       OutputStream os = socket.getOutputStream();
@@ -68,7 +67,6 @@ public class ProxyHttpServerProcess implements ServerProcess {
       }
       // リクエストの分解、保持
       String head = new String(headBytes, 0, index);
-      System.out.println(head);
       if (head != null) {
         // SSL
         String[] heads = head.split(" ");
@@ -97,7 +95,6 @@ public class ProxyHttpServerProcess implements ServerProcess {
                             + heads[2]
                             + "\r\n")
                         .getBytes());
-            System.out.println("header出力完了");
             Thread remoteThrougher =
                 new Thread(new IOThrougher(is, send.getOutputStream(), "socket:i→o"));
             remoteThrougher.setDaemon(true);
@@ -112,7 +109,6 @@ public class ProxyHttpServerProcess implements ServerProcess {
             SSLSocket sslSocket =
                 (SSLSocket) SSLSocketFactory.getDefault().createSocket(host, port);
             sslSocket.startHandshake();
-            System.out.println("handshake完了");
             Thread remoteThrougher =
                 new Thread(new IOThrougher(is, sslSocket.getOutputStream(), "ssl:i→o"));
             remoteThrougher.setDaemon(true);
