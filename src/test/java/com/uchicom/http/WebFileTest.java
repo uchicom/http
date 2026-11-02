@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ public class WebFileTest {
 
     create("a.txt", "content").write(new PrintStream(out));
 
-    assertThat(out.toString()).isEqualTo("content");
+    assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo("content");
   }
 
   @Test
@@ -66,7 +67,7 @@ public class WebFileTest {
     WebFile webFile = new WebFile(file, 0);
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     webFile.write(new PrintStream(out));
-    assertThat(out.toString()).isEqualTo("old");
+    assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo("old");
 
     // 更新時刻が変わらなくても反映される
     long modified = file.lastModified();
@@ -75,7 +76,7 @@ public class WebFileTest {
     out.reset();
     webFile.write(new PrintStream(out));
 
-    assertThat(out.toString()).isEqualTo("new!");
+    assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo("new!");
   }
 
   @Test
@@ -92,13 +93,13 @@ public class WebFileTest {
     file.setLastModified(1_000_000_000_000L);
     out.reset();
     webFile.write(new PrintStream(out));
-    assertThat(out.toString()).isEqualTo("old");
+    assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo("old");
 
     // 更新時刻が変われば読み直す
     file.setLastModified(1_100_000_000_000L);
     out.reset();
     webFile.write(new PrintStream(out));
-    assertThat(out.toString()).isEqualTo("new");
+    assertThat(out.toString(StandardCharsets.UTF_8)).isEqualTo("new");
   }
 
   @Test

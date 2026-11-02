@@ -13,6 +13,7 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.TemporalAccessor;
 import java.util.Base64;
 import java.util.HashMap;
@@ -46,7 +47,7 @@ public class DefaultRouterTest {
   private String request(String path, Map<String, String> headMap) throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     router.request(path, new HashMap<>(), headMap, out);
-    return out.toString();
+    return out.toString(StandardCharsets.UTF_8);
   }
 
   private void prepareBasic() {
@@ -56,7 +57,9 @@ public class DefaultRouterTest {
   private Map<String, String> authHeader(String credentials) {
     Map<String, String> head = new HashMap<>();
     head.put(
-        "Authorization", "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes()));
+        "Authorization",
+        "Basic "
+            + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8)));
     return head;
   }
 
@@ -121,6 +124,67 @@ public class DefaultRouterTest {
       assertThat(router.exists(path)).as(path).isFalse();
       assertThat(request(path, new HashMap<>())).as(path).doesNotStartWith("HTTP/1.1 200");
     }
+  }
+
+  @Test
+  public void findRejectsHiddenFilesByShortName() throws Exception {
+    Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, ".basic", "user=pass\n");
+    write(sub, ".forward", "host=localhost\nport=1\n");
+    write(sub, "a.txt", "x");
+    // 8.3短縮名が生成されない環境では対象外
+    String shortBasic = shortName(sub, ".basic");
+    String shortForward = shortName(sub, ".forward");
+    Assumptions.assumeTrue(shortBasic != null && shortForward != null);
+
+    assertThat(router.exists("/sub/" + shortBasic)).isFalse();
+    assertThat(router.exists("/sub/" + shortForward)).isFalse();
+    assertThat(request("/sub/" + shortBasic, new HashMap<>())).doesNotStartWith("HTTP/1.1 200");
+    assertThat(router.exists("/sub/a.txt")).isTrue();
+  }
+
+  /** `dir /x`で、指定の名前に対応する8.3短縮名を返す. 無い場合はnull. */
+  private String shortName(File dir, String name) throws Exception {
+    Process process =
+        new ProcessBuilder("cmd", "/c", "dir", "/x", dir.getAbsolutePath())
+            .redirectErrorStream(true)
+            .start();
+    String output =
+        new String(process.getInputStream().readAllBytes(), StandardCharsets.ISO_8859_1);
+    process.waitFor();
+    for (String line : output.split("\r?\n", 0)) {
+      if (line.endsWith(" " + name)) {
+        for (String token : line.trim().split("\\s+", 0)) {
+          if (token.contains("~")) {
+            return token;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  @Test
+  public void findRejectsSymbolicLinkOutsideHtml() throws Exception {
+    write(baseDir, "outside.txt", "secret");
+    File sub = new File(htmlDir, "sub");
+    sub.mkdirs();
+    write(sub, "inside.txt", "x");
+    try {
+      Files.createSymbolicLink(
+          new File(htmlDir, "link.txt").toPath(), new File(baseDir, "outside.txt").toPath());
+      Files.createSymbolicLink(new File(htmlDir, "linkdir").toPath(), baseDir.toPath());
+      Files.createSymbolicLink(
+          new File(htmlDir, "inside-link.txt").toPath(), new File(sub, "inside.txt").toPath());
+    } catch (UnsupportedOperationException | java.io.IOException e) {
+      Assumptions.abort("symbolic link is not available");
+    }
+
+    assertThat(router.exists("/link.txt")).isFalse();
+    assertThat(router.exists("/linkdir/outside.txt")).isFalse();
+    assertThat(router.exists("/inside-link.txt")).isTrue();
   }
 
   @Test
@@ -212,7 +276,7 @@ public class DefaultRouterTest {
 
   @Test
   public void isNotModifiedMissingFile() {
-    assertThat(router.isNotModified("/none.txt", OffsetDateTime.now())).isFalse();
+    assertThat(router.isNotModified("/none.txt", OffsetDateTime.now(ZoneOffset.UTC))).isFalse();
   }
 
   @Test
@@ -310,9 +374,11 @@ public class DefaultRouterTest {
           "Basic",
           "token",
           "Basic !!!not-base64!!!",
-          "Basic " + Base64.getEncoder().encodeToString("nocolon".getBytes()),
-          "Basic " + Base64.getEncoder().encodeToString("unknown:pass".getBytes()),
-          "Bearer " + Base64.getEncoder().encodeToString("user:pass".getBytes())
+          "Basic " + Base64.getEncoder().encodeToString("nocolon".getBytes(StandardCharsets.UTF_8)),
+          "Basic "
+              + Base64.getEncoder().encodeToString("unknown:pass".getBytes(StandardCharsets.UTF_8)),
+          "Bearer "
+              + Base64.getEncoder().encodeToString("user:pass".getBytes(StandardCharsets.UTF_8))
         }) {
       Map<String, String> head = new HashMap<>();
       head.put("Authorization", authorization);
@@ -357,7 +423,7 @@ public class DefaultRouterTest {
 
     router.error("404", out);
 
-    String response = out.toString();
+    String response = out.toString(StandardCharsets.UTF_8);
     assertThat(response).startsWith("HTTP/1.1 404 Not Found\r\n");
     assertThat(response).doesNotContain("Server:");
     assertThat(response).contains("Content-Length: 9\r\n");
@@ -370,7 +436,7 @@ public class DefaultRouterTest {
 
     router.error("500", out);
 
-    String response = out.toString();
+    String response = out.toString(StandardCharsets.UTF_8);
     assertThat(response).startsWith("HTTP/1.1 500 Internal Server Error\r\n");
     assertThat(response).contains("Content-Length: 0\r\n");
     assertThat(response).endsWith("\r\n\r\n");
@@ -385,11 +451,11 @@ public class DefaultRouterTest {
     for (String code : new String[] {"401", "404", "502"}) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       router.error(code, out);
-      assertThat(out.toString()).as(code).contains("\r\n\r\n");
+      assertThat(out.toString(StandardCharsets.UTF_8)).as(code).contains("\r\n\r\n");
     }
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     router.error("502", out);
-    assertThat(out.toString()).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
+    assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("HTTP/1.1 502 Bad Gateway\r\n");
   }
 
   @Test
@@ -425,7 +491,7 @@ public class DefaultRouterTest {
         new BufferedReader(new StringReader(request)),
         out,
         "192.0.2.1");
-    return out.toString();
+    return out.toString(StandardCharsets.UTF_8);
   }
 
   /** 転送先に届いたヘッダー部を返す. 転送先は応答を返したあと接続を閉じない. */
@@ -444,7 +510,9 @@ public class DefaultRouterTest {
                     }
                     received.append((char) b);
                   }
-                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".getBytes());
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                   socket.getOutputStream().flush();
                   // keep-alive 指定なら閉じずに待つ転送先を模す
                   if (!received.toString().contains("Connection: close\r\n")) {
@@ -468,7 +536,7 @@ public class DefaultRouterTest {
           "192.0.2.1");
       thread.join(5000);
       assertThat(System.currentTimeMillis() - start).isLessThan(2500);
-      assertThat(out.toString()).startsWith("HTTP/1.1 200 OK");
+      assertThat(out.toString(StandardCharsets.UTF_8)).startsWith("HTTP/1.1 200 OK");
       return received.toString();
     }
   }
@@ -477,8 +545,14 @@ public class DefaultRouterTest {
   public void forwardReplacesConnectionAndAddsForwardedHeaders() throws Exception {
     String received =
         forwardAndCaptureHeaders(
-            "Host: example.com\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\n"
-                + "X-Forwarded-For: 198.51.100.7\r\nX-Forwarded-Proto: https\r\n\r\n");
+            """
+            Host: example.com\r
+            Connection: keep-alive\r
+            Keep-Alive: timeout=5\r
+            X-Forwarded-For: 198.51.100.7\r
+            X-Forwarded-Proto: https\r
+            \r
+            """);
 
     assertThat(received).contains("Connection: close\r\n");
     assertThat(received).doesNotContain("keep-alive").doesNotContain("Keep-Alive");
@@ -615,9 +689,11 @@ public class DefaultRouterTest {
                     matched = (b == "\r\n\r\n".charAt(matched)) ? matched + 1 : (b == '\r' ? 1 : 0);
                   }
                   received.write(in.readNBytes(body.length));
-                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".getBytes());
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n\r\n".getBytes(StandardCharsets.UTF_8));
                 } catch (Exception e) {
-                  e.printStackTrace();
+                  throw new IllegalStateException(e);
                 }
               });
       thread.start();
@@ -664,7 +740,9 @@ public class DefaultRouterTest {
           new Thread(
               () -> {
                 try (Socket socket = server.accept()) {
-                  socket.getOutputStream().write("HTTP/1.1 200 OK\r\n".getBytes());
+                  socket
+                      .getOutputStream()
+                      .write("HTTP/1.1 200 OK\r\n".getBytes(StandardCharsets.UTF_8));
                   socket.getOutputStream().flush();
                   // 続きを返さず待つ
                   Thread.sleep(1000);

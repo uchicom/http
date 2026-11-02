@@ -11,7 +11,7 @@ public class Main {
   /**
    * アドレスとメールユーザーフォルダの格納フォルダを指定する.
    *
-   * @param args
+   * @param args 起動パラメータ
    */
   public static void main(String[] args) {
     HttpParameter parameter = new HttpParameter(args);
