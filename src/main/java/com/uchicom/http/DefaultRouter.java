@@ -369,6 +369,8 @@ public class DefaultRouter implements Router {
         return "Payload Too Large";
       case "414":
         return "URI Too Long";
+      case "431":
+        return "Request Header Fields Too Large";
       case "500":
         return "Internal Server Error";
       case "501":
@@ -420,9 +422,20 @@ public class DefaultRouter implements Router {
       os.write(
           (heads[0] + " " + heads[1] + " " + heads[2] + "\r\n")
               .getBytes(StandardCharsets.ISO_8859_1));
-      String line = reader.readLine();
       int contentLength = 0;
+      int headerCount = 0;
+      String line;
+      try {
+        line = LineReader.readLine(reader);
+      } catch (LineReader.LineTooLongException e) {
+        error("431", outputStream);
+        return;
+      }
       while (line != null && !"".equals(line)) {
+        if (++headerCount > Constants.MAX_HEADER_COUNT) {
+          error("431", outputStream);
+          return;
+        }
         if (line.regionMatches(true, 0, "Content-Length:", 0, 15)) {
           try {
             contentLength = Integer.parseInt(line.substring(15).trim());
@@ -436,7 +449,12 @@ public class DefaultRouter implements Router {
           }
         }
         os.write((line + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
-        line = reader.readLine();
+        try {
+          line = LineReader.readLine(reader);
+        } catch (LineReader.LineTooLongException e) {
+          error("431", outputStream);
+          return;
+        }
       }
       os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
       if (contentLength > 0) {

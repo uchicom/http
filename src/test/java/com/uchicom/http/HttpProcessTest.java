@@ -118,6 +118,45 @@ public class HttpProcessTest {
   }
 
   @Test
+  public void requestLineTooLong() throws Exception {
+    String path = "/" + "a".repeat(Constants.MAX_LINE_LENGTH);
+    assertThat(execute("GET " + path + " HTTP/1.1\r\n\r\n")).startsWith("HTTP/1.1 414");
+    // 改行なしの巨大データ
+    assertThat(execute("a".repeat(Constants.MAX_LINE_LENGTH * 4))).startsWith("HTTP/1.1 414");
+  }
+
+  @Test
+  public void requestLineAtLimit() throws Exception {
+    String prefix = "GET /";
+    String suffix = " HTTP/1.1";
+    String path = "a".repeat(Constants.MAX_LINE_LENGTH - prefix.length() - suffix.length());
+    assertThat(execute(prefix + path + suffix + "\r\n\r\n")).startsWith("HTTP/1.1 404");
+  }
+
+  @Test
+  public void headerLineTooLong() throws Exception {
+    String header = "X-Long: " + "a".repeat(Constants.MAX_LINE_LENGTH);
+    assertThat(execute("GET /a.html HTTP/1.1\r\n" + header + "\r\n\r\n"))
+        .startsWith("HTTP/1.1 431");
+  }
+
+  @Test
+  public void headerLineAtLimit() throws Exception {
+    String header = "X-Long: " + "a".repeat(Constants.MAX_LINE_LENGTH - "X-Long: ".length());
+    assertThat(execute("GET /a.html HTTP/1.1\r\n" + header + "\r\n\r\n"))
+        .startsWith("HTTP/1.1 200 OK");
+  }
+
+  @Test
+  public void tooManyHeaders() throws Exception {
+    String over = "X-A: b\r\n".repeat(Constants.MAX_HEADER_COUNT + 1);
+    assertThat(execute("GET /a.html HTTP/1.1\r\n" + over + "\r\n")).startsWith("HTTP/1.1 431");
+    String atLimit = "X-A: b\r\n".repeat(Constants.MAX_HEADER_COUNT);
+    assertThat(execute("GET /a.html HTTP/1.1\r\n" + atLimit + "\r\n"))
+        .startsWith("HTTP/1.1 200 OK");
+  }
+
+  @Test
   public void badRequest() throws Exception {
     assertThat(execute("GARBAGE\r\n\r\n")).startsWith("HTTP/1.1 400");
     assertThat(execute("")).startsWith("HTTP/1.1 400");

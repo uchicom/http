@@ -22,6 +22,12 @@ public class Constants {
   /** リクエストボディの最大サイズ(バイト) */
   public static final int MAX_CONTENT_LENGTH = 10 * 1024 * 1024;
 
+  /** リクエスト行・ヘッダー1行の最大長(バイト) */
+  public static final int MAX_LINE_LENGTH = 8 * 1024;
+
+  /** ヘッダーの最大件数 */
+  public static final int MAX_HEADER_COUNT = 100;
+
   public static DateTimeFormatter formatter =
       DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC);
 }
