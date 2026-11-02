@@ -222,7 +222,7 @@ public class DefaultRouter implements Router {
       }
       // 通常ファイルの場合
       long len = file.length();
-      ps.print("HTTP/1.1 200 OK \r\n");
+      ps.print("HTTP/1.1 200 OK\r\n");
       ps.print("Date: ");
       ps.print(Constants.formatter.format(OffsetDateTime.now(ZoneOffset.UTC)));
       ps.print("\r\n");
