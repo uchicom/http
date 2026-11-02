@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -45,10 +46,10 @@ public class DefaultRouter implements Router {
   protected long cacheSize;
 
   /** forward先への接続タイムアウト(ミリ秒) */
-  private static final int FORWARD_CONNECT_TIMEOUT = 5000;
+  protected int forwardConnectTimeout = 5000;
 
   /** forward先からの読み込みタイムアウト(ミリ秒) */
-  private static final int FORWARD_READ_TIMEOUT = 30000;
+  protected int forwardReadTimeout = 30000;
 
   /*
    * (non-Javadoc)
@@ -415,9 +416,11 @@ public class DefaultRouter implements Router {
       return;
     }
     // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
+    // 転送先から応答を返し始めたあとは、ステータスを書けないので接続を閉じるだけにする
+    boolean responded = false;
     try (Socket socket = new Socket()) {
-      socket.connect(new InetSocketAddress(host, port), FORWARD_CONNECT_TIMEOUT);
-      socket.setSoTimeout(FORWARD_READ_TIMEOUT);
+      socket.connect(new InetSocketAddress(host, port), forwardConnectTimeout);
+      socket.setSoTimeout(forwardReadTimeout);
       OutputStream os = socket.getOutputStream();
       os.write(
           (heads[0] + " " + heads[1] + " " + heads[2] + "\r\n")
@@ -472,9 +475,15 @@ public class DefaultRouter implements Router {
       byte[] bytes = new byte[4 * 1024];
       int length = 0;
       while ((length = is.read(bytes)) > 0) {
+        responded = true;
         outputStream.write(bytes, 0, length);
         outputStream.flush();
       }
+    } catch (IOException e) {
+      if (responded) {
+        return;
+      }
+      error(e instanceof SocketTimeoutException ? "504" : "502", outputStream);
     }
   }
 
