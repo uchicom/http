@@ -20,6 +20,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -240,6 +241,33 @@ public class DefaultRouterTest {
       assertThat(router.find(path).isBasic()).as(path).isTrue();
       assertThat(request(path, authHeader("user:pass"))).as(path).startsWith("HTTP/1.1 200");
     }
+  }
+
+  @Test
+  public void requestBasicIsNotBypassedByCaseVariationOnCaseInsensitiveFileSystem()
+      throws Exception {
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+    Assumptions.assumeTrue(new File(htmlDir, "SECRET/A.HTML").isFile());
+
+    assertThat(request("/SECRET/a.html", new HashMap<>())).startsWith("HTTP/1.1 401");
+    assertThat(request("/secret/A.HTML", new HashMap<>())).startsWith("HTTP/1.1 401");
+    assertThat(request("/SECRET/a.html", authHeader("user:pass"))).startsWith("HTTP/1.1 200");
+  }
+
+  @Test
+  public void requestBasicIsNotBypassedByTrailingDotOnWindows() throws Exception {
+    Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+    File secret = new File(htmlDir, "secret");
+    secret.mkdirs();
+    write(secret, ".basic", "user=pass\n");
+    write(secret, "a.html", "body");
+    prepareBasic();
+
+    assertThat(request("/secret./a.html", new HashMap<>())).doesNotStartWith("HTTP/1.1 200");
   }
 
   @Test
