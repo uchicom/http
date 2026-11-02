@@ -14,12 +14,10 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -168,38 +166,7 @@ public class DefaultRouter implements Router {
    * @return 認証できた場合true
    */
   boolean authenticate(WebFile webFile, Map<String, String> headMap) {
-    String authorization = headMap.get("Authorization");
-    if (authorization == null) {
-      return false;
-    }
-    int typeIndex = authorization.indexOf(' ');
-    if (typeIndex < 0 || !"Basic".equals(authorization.substring(0, typeIndex))) {
-      return false;
-    }
-    String decoded;
-    try {
-      decoded =
-          new String(
-              Base64.getDecoder().decode(authorization.substring(typeIndex + 1).trim()),
-              StandardCharsets.UTF_8);
-    } catch (IllegalArgumentException e) {
-      return false;
-    }
-    int index = decoded.indexOf(':');
-    if (index < 0) {
-      return false;
-    }
-    Properties prop = webFile.getBasic();
-    if (prop == null) {
-      return false;
-    }
-    String password = prop.getProperty(decoded.substring(0, index));
-    if (password == null) {
-      return false;
-    }
-    return MessageDigest.isEqual(
-        decoded.substring(index + 1).getBytes(StandardCharsets.UTF_8),
-        password.getBytes(StandardCharsets.UTF_8));
+    return BasicAuthenticator.authenticate(headMap.get("Authorization"), webFile.getBasic());
   }
 
   /*
