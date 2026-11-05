@@ -42,7 +42,6 @@ public class DefaultRouter implements Router {
 
   protected final Map<String, Properties> basicMap = new ConcurrentHashMap<>();
   protected final Map<String, Properties> forwardMap = new ConcurrentHashMap<>();
-  protected final Map<String, File> errorMap = new ConcurrentHashMap<>();
 
   /** 公開ディレクトリ(正規化済みの絶対パス) */
   protected Path htmlPath;
@@ -62,10 +61,8 @@ public class DefaultRouter implements Router {
   @Override
   public void init(File baseFile, long cacheSize) {
     this.cacheSize = cacheSize;
-    File htmlFile = new File(baseFile, "html");
-    setHtmlDir(htmlFile);
-    loadSettings(htmlFile);
-    createErrorMap(new File(baseFile, "error"));
+    setHtmlDir(baseFile);
+    loadSettings(baseFile);
   }
 
   void setHtmlDir(File htmlFile) {
@@ -292,30 +289,17 @@ public class DefaultRouter implements Router {
     }
   }
 
-  public void createErrorMap(File file) {
-    if (file.exists()) {
-      if (file.isDirectory()) {
-        File[] childs = file.listFiles();
-        for (File childFile : childs) {
-          errorMap.put(childFile.getName().substring(0, 3), childFile);
-        }
-      }
-    }
-  }
-
   @Override
   public void error(String code, OutputStream outputStream) throws IOException {
     error(code, "", outputStream);
   }
 
   /**
-   * エラー応答を返す. エラーページがない場合も、空行とContent-Length: 0で終端する.
+   * エラー応答を返す. 本文は常に空で、空行とContent-Length: 0で終端する.
    *
    * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
    */
   void error(String code, String extraHeaders, OutputStream outputStream) throws IOException {
-    File error = errorMap.get(code);
-    long len = error != null ? error.length() : 0;
     try (PrintStream ps = new PrintStream(outputStream); ) {
       ps.print("HTTP/1.1 ");
       ps.print(code);
@@ -328,21 +312,8 @@ public class DefaultRouter implements Router {
       ps.print(extraHeaders);
       ps.print("Connection: close\r\n");
       ps.print("Content-Length: ");
-      ps.print(String.valueOf(len));
+      ps.print("0\r\n");
       ps.print("\r\n");
-      if (len > 0) {
-        ps.print("Content-Type: text/html; charset=UTF-8\r\n");
-      }
-      ps.print("\r\n");
-      if (len > 0) {
-        try (FileInputStream fis = new FileInputStream(error); ) {
-          byte[] bytes = new byte[1024];
-          int length = 0;
-          while ((length = fis.read(bytes)) >= 0) {
-            ps.write(bytes, 0, length);
-          }
-        }
-      }
       ps.flush();
     }
   }

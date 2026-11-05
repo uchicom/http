@@ -18,8 +18,6 @@ public class HttpParameterTest {
   @TempDir Path baseDir;
 
   private HttpParameter create(String type) throws Exception {
-    java.nio.file.Files.createDirectories(baseDir.resolve("html"));
-    java.nio.file.Files.createDirectories(baseDir.resolve("error"));
     HttpParameter parameter =
         new HttpParameter(new String[] {"-type", type, "-dir", baseDir.toString()});
     assertThat(parameter.init(new PrintStream(new ByteArrayOutputStream()))).isTrue();

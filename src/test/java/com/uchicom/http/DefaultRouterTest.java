@@ -233,24 +233,6 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void createErrorMap() throws Exception {
-    File errorDir = new File(baseDir, "error");
-    errorDir.mkdirs();
-    write(errorDir, "404.html", "not found");
-
-    router.createErrorMap(errorDir);
-
-    assertThat(router.errorMap.get("404")).isEqualTo(new File(errorDir, "404.html"));
-  }
-
-  @Test
-  public void createErrorMapMissingDirectory() {
-    router.createErrorMap(new File(baseDir, "nothing"));
-
-    assertThat(router.errorMap).isEmpty();
-  }
-
-  @Test
   public void isNotModified() throws Exception {
     write(htmlDir, "a.txt", "a");
 
@@ -414,40 +396,21 @@ public class DefaultRouterTest {
   }
 
   @Test
-  public void errorWithRegisteredPage() throws Exception {
-    File errorDir = new File(baseDir, "error");
-    errorDir.mkdirs();
-    write(errorDir, "404.html", "not found");
-    router.createErrorMap(errorDir);
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
-
-    router.error("404", out);
-
-    String response = out.toString(StandardCharsets.UTF_8);
-    assertThat(response).startsWith("HTTP/1.1 404 Not Found\r\n");
-    assertThat(response).doesNotContain("Server:");
-    assertThat(response).contains("Content-Length: 9\r\n");
-    assertThat(response).endsWith("\r\n\r\nnot found");
-  }
-
-  @Test
-  public void errorWithoutRegisteredPage() throws Exception {
+  public void errorHasNoBody() throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     router.error("500", out);
 
     String response = out.toString(StandardCharsets.UTF_8);
     assertThat(response).startsWith("HTTP/1.1 500 Internal Server Error\r\n");
+    assertThat(response).doesNotContain("Server:");
+    assertThat(response).doesNotContain("Content-Type:");
     assertThat(response).contains("Content-Length: 0\r\n");
     assertThat(response).endsWith("\r\n\r\n");
   }
 
   @Test
-  public void errorTerminatesHeadersWithAndWithoutPage() throws Exception {
-    File errorDir = new File(baseDir, "error");
-    errorDir.mkdirs();
-    write(errorDir, "404.html", "nf");
-    router.createErrorMap(errorDir);
+  public void errorTerminatesHeaders() throws Exception {
     for (String code : new String[] {"401", "404", "502"}) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       router.error(code, out);
