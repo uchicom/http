@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -63,7 +64,7 @@ public class HttpProcess implements ServerProcess {
         return;
       }
       Map<String, List<String>> paramMap = null;
-      Map<String, String> headMap = new HashMap<>();
+      Map<String, String> headMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
       if (urls.length > 1) {
         // GETパラメータありなので解析。
         paramMap = createGetParamMap(urls[1]);
