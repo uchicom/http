@@ -24,10 +24,13 @@ public class RedirectHttpServerProcess implements ServerProcess {
   private Socket socket;
   Router router;
 
-  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket) {
+  private final int timeout;
+
+  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket, int timeout) {
     this.parameter = parameter;
     this.socket = socket;
     this.router = router;
+    this.timeout = timeout;
   }
 
   @Override
@@ -46,6 +49,13 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
   @Override
   public void execute() {
+    try {
+      socket.setSoTimeout(timeout);
+    } catch (IOException e) {
+      LOGGER.log(Level.WARNING, "timeout can not be set", e);
+      forceClose();
+      return;
+    }
     try (BufferedReader br =
             new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));

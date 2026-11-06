@@ -27,18 +27,20 @@ public class HttpProcess implements ServerProcess {
 
   protected final StaticHandler staticHandler;
 
-  /** 最終処理時刻 */
-  private long lastTime = System.currentTimeMillis();
+  /** 読み込みタイムアウト(ミリ秒) */
+  private final int timeout;
 
-  public HttpProcess(Router router, Socket socket) {
+  public HttpProcess(Router router, Socket socket, int timeout) {
     this.socket = socket;
     this.router = router;
+    this.timeout = timeout;
     this.staticHandler = new StaticHandler(router);
   }
 
   @Override
   public long getLastTime() {
-    return lastTime; // TODO これabstracだな
+    // 無通信はsetSoTimeoutで切断するので、最終処理時刻は管理しない
+    return System.currentTimeMillis();
   }
 
   @Override
@@ -140,6 +142,7 @@ public class HttpProcess implements ServerProcess {
   @Override
   public void execute() {
     try {
+      socket.setSoTimeout(timeout);
       BufferedReader br =
           new BufferedReader(
               new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));

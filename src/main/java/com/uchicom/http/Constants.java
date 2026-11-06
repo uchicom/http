@@ -19,6 +19,9 @@ public class Constants {
   /** デフォルトスレッドプール数 */
   public static String DEFAULT_POOL = "10";
 
+  /** デフォルトの読み込みタイムアウト(ミリ秒). 無通信接続の占有(Slowloris)対策 */
+  public static final int DEFAULT_TIMEOUT = 30 * 1000;
+
   /** リクエストボディの最大サイズ(バイト) */
   public static final int MAX_CONTENT_LENGTH = 10 * 1024 * 1024;
 

@@ -37,7 +37,7 @@ public class HttpProcessTest {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     when(socket.getOutputStream()).thenReturn(out);
 
-    new HttpProcess(router, socket).execute();
+    new HttpProcess(router, socket, Constants.DEFAULT_TIMEOUT).execute();
 
     return out.toString(StandardCharsets.UTF_8);
   }
@@ -191,6 +191,23 @@ public class HttpProcessTest {
   public void badRequest() throws Exception {
     assertThat(execute("GARBAGE\r\n\r\n")).startsWith("HTTP/1.1 400");
     assertThat(execute("")).startsWith("HTTP/1.1 400");
+  }
+
+  @Test
+  public void idleConnectionIsClosedByTimeout() throws Exception {
+    try (java.net.ServerSocket server =
+            new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
+        Socket client =
+            new Socket(java.net.InetAddress.getLoopbackAddress(), server.getLocalPort());
+        Socket accepted = server.accept()) {
+      client.setSoTimeout(5000);
+      long start = System.currentTimeMillis();
+      // 何も送らないクライアント
+      new HttpProcess(router, accepted, 200).execute();
+
+      assertThat(System.currentTimeMillis() - start).isLessThan(5000);
+      assertThat(accepted.isClosed()).isTrue();
+    }
   }
 
   @Test
