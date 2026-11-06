@@ -233,6 +233,56 @@ public class DefaultRouterTest {
   }
 
   @Test
+  public void loadSettingsFailsWhenBasicCannotBeLoaded() throws Exception {
+    // .basicがファイルでなく読めない(ディレクトリ扱い)ケースは再現しづらいため、不正なUnicodeエスケープで読み込み失敗させる
+    write(htmlDir, ".basic", "user=\\uZZZZ\n");
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> router.loadSettings(htmlDir))
+        .isInstanceOf(java.io.UncheckedIOException.class);
+  }
+
+  @Test
+  public void loadSettingsFailsWhenDirectoryCannotBeListed() throws Exception {
+    File missing = new File(htmlDir, "missing");
+    File notListable =
+        new File(htmlDir, "x") {
+          @Override
+          public boolean isDirectory() {
+            return true;
+          }
+
+          @Override
+          public File[] listFiles() {
+            return null;
+          }
+        };
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> router.loadSettings(notListable))
+        .isInstanceOf(java.io.UncheckedIOException.class);
+    assertThat(missing).doesNotExist();
+  }
+
+  @Test
+  public void basicAddedAfterStartupIsApplied() throws Exception {
+    router.loadSettings(htmlDir);
+    write(htmlDir, "a.txt", "a");
+    assertThat(router.find("/a.txt").isBasic()).isFalse();
+
+    write(htmlDir, ".basic", "user=pass\n");
+
+    assertThat(router.find("/a.txt").isBasic()).isTrue();
+    assertThat(request("/a.txt", new HashMap<>())).startsWith("HTTP/1.1 401");
+  }
+
+  @Test
+  public void brokenBasicAddedAfterStartupDeniesAccess() throws Exception {
+    router.loadSettings(htmlDir);
+    write(htmlDir, "a.txt", "a");
+    write(htmlDir, ".basic", "user=\\uZZZZ\n");
+
+    assertThat(router.exists("/a.txt")).isFalse();
+  }
+
+  @Test
   public void isNotModified() throws Exception {
     write(htmlDir, "a.txt", "a");
 
