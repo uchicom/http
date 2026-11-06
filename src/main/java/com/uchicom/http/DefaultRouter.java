@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -48,6 +49,9 @@ public class DefaultRouter implements Router {
 
   /** 公開ディレクトリの実パス(シンボリックリンク・大文字小文字・短縮名を解決済み。解決できない場合はhtmlPathと同じ) */
   protected Path htmlRealPath;
+
+  /** .basicの最終更新時刻(ディレクトリキー別). 更新検知用 */
+  private final Map<String, Long> basicModifiedMap = new ConcurrentHashMap<>();
 
   /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
   protected long cacheSize;
@@ -106,8 +110,42 @@ public class DefaultRouter implements Router {
     } else {
       webFile = new WebFile(file, 0);
     }
-    webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
+    String key = directoryKey(path.getParent());
+    try {
+      refreshBasic(path.getParent().resolve(".basic").toFile(), key);
+    } catch (IOException e) {
+      // 認証設定を読めない場合は認証なしで公開せず、アクセスを拒否する
+      LOGGER.log(Level.WARNING, path.getParent() + " .basic can not be loaded", e);
+      webFileMap.remove(filePath);
+      return null;
+    }
+    webFile.setBasic(basicMap.get(key));
     return webFile;
+  }
+
+  /** 起動後に追加・更新された.basicを反映する. 読み込めない場合はIOExceptionを投げる. */
+  private void refreshBasic(File basicFile, String key) throws IOException {
+    if (!basicFile.isFile()) {
+      return;
+    }
+    long modified = basicFile.lastModified();
+    Long loaded = basicModifiedMap.get(key);
+    if (loaded != null && loaded == modified && basicMap.containsKey(key)) {
+      return;
+    }
+    basicMap.put(key, loadProperties(basicFile));
+    basicModifiedMap.put(key, modified);
+  }
+
+  private static Properties loadProperties(File file) throws IOException {
+    try (FileInputStream fis = new FileInputStream(file)) {
+      Properties properties = new Properties();
+      properties.load(fis);
+      return properties;
+    } catch (IllegalArgumentException e) {
+      // 不正なUnicodeエスケープ
+      throw new IOException(file + " is malformed", e);
+    }
   }
 
   /**
@@ -263,12 +301,12 @@ public class DefaultRouter implements Router {
         if (".basic".equals(file.getName())) {
           String relativePath = directoryKey(file.getParentFile().toPath());
           // Basicファイル認証がある場合
-          try (FileInputStream fis = new FileInputStream(file)) {
-            Properties properties = new Properties();
-            properties.load(fis);
-            basicMap.put(relativePath, properties);
+          // 読み込めない場合は認証なしで公開しないよう、起動を失敗させる
+          try {
+            basicMap.put(relativePath, loadProperties(file));
+            basicModifiedMap.put(relativePath, file.lastModified());
           } catch (IOException e) {
-            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
+            throw new UncheckedIOException(file + " can not be loaded", e);
           }
         } else if (".forward".equals(file.getName())) {
           String relativePath = directoryKey(file.getParentFile().toPath());
@@ -283,6 +321,9 @@ public class DefaultRouter implements Router {
       }
     } else if (file.isDirectory()) {
       File[] childs = file.listFiles();
+      if (childs == null) {
+        throw new UncheckedIOException(new IOException(file + " can not be listed"));
+      }
       for (File childFile : childs) {
         loadSettings(childFile);
       }
