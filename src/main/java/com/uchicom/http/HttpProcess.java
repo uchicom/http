@@ -58,7 +58,13 @@ public class HttpProcess implements ServerProcess {
     if (heads.length == 3) {
       // 初期応答行を返却する
       String[] urls = heads[1].split("\\?", 0);
-      String fileName = StaticHandler.normalize(urls[0]);
+      String fileName;
+      try {
+        fileName = StaticHandler.normalize(urls[0]);
+      } catch (IllegalArgumentException e) {
+        router.error("400", os);
+        return;
+      }
       if (router.isForward(fileName)) {
         router.forward(fileName, heads, br, os, socket.getInetAddress().getHostAddress());
         return;
