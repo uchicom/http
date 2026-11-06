@@ -65,6 +65,17 @@ public class HttpProcessTest {
   }
 
   @Test
+  public void lowerCaseHeaderNames() throws Exception {
+    // ヘッダー名は大文字小文字を区別しない
+    assertThat(
+            execute(
+                "GET /a.html HTTP/1.1\r\nif-modified-since: " + ifModifiedSince(3600) + "\r\n\r\n"))
+        .startsWith("HTTP/1.1 304");
+    assertThat(execute("POST /a.html HTTP/1.1\r\ncontent-length: abc\r\n\r\n"))
+        .startsWith("HTTP/1.1 400");
+  }
+
+  @Test
   public void oldIfModifiedSince() throws Exception {
     String response =
         execute(
