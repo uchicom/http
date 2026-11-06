@@ -32,9 +32,15 @@ public class ProxyHttpServerProcess implements ServerProcess {
   private volatile Socket send;
   private volatile long lastTime = System.currentTimeMillis();
 
-  public ProxyHttpServerProcess(ProxyConfig config, Socket socket) {
+  private final int timeout;
+
+  /**
+   * @param timeout 読み込みタイムアウト(ミリ秒)。中継中は双方向とも無通信がこの時間続くと切断する
+   */
+  public ProxyHttpServerProcess(ProxyConfig config, Socket socket, int timeout) {
     this.config = config;
     this.socket = socket;
+    this.timeout = timeout;
   }
 
   @Override
@@ -60,6 +66,7 @@ public class ProxyHttpServerProcess implements ServerProcess {
   }
 
   private void handle() throws IOException {
+    socket.setSoTimeout(timeout);
     InputStream is = socket.getInputStream();
     OutputStream os = socket.getOutputStream();
 
@@ -218,6 +225,7 @@ public class ProxyHttpServerProcess implements ServerProcess {
       Socket target = new Socket();
       try {
         target.connect(new InetSocketAddress(address, port), CONNECT_TIMEOUT);
+        target.setSoTimeout(timeout);
         return target;
       } catch (IOException e) {
         close(target);
