@@ -43,7 +43,10 @@ public class ProxyHttpServerProcessTest {
     Socket client = new Socket(InetAddress.getLoopbackAddress(), proxy.getLocalPort());
     client.setSoTimeout(5000);
     Socket accepted = proxy.accept();
-    Thread thread = new Thread(() -> new ProxyHttpServerProcess(config, accepted, Constants.DEFAULT_TIMEOUT).execute());
+    Thread thread =
+        new Thread(
+            () ->
+                new ProxyHttpServerProcess(config, accepted, Constants.DEFAULT_TIMEOUT).execute());
     thread.setDaemon(true);
     thread.start();
     return client;

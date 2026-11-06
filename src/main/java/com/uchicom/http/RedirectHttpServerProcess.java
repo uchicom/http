@@ -26,8 +26,7 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
   private final int timeout;
 
-  public RedirectHttpServerProcess(
-      Parameter parameter, Router router, Socket socket, int timeout) {
+  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket, int timeout) {
     this.parameter = parameter;
     this.socket = socket;
     this.router = router;

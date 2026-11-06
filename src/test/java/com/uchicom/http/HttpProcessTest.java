@@ -197,7 +197,8 @@ public class HttpProcessTest {
   public void idleConnectionIsClosedByTimeout() throws Exception {
     try (java.net.ServerSocket server =
             new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
-        Socket client = new Socket(java.net.InetAddress.getLoopbackAddress(), server.getLocalPort());
+        Socket client =
+            new Socket(java.net.InetAddress.getLoopbackAddress(), server.getLocalPort());
         Socket accepted = server.accept()) {
       client.setSoTimeout(5000);
       long start = System.currentTimeMillis();

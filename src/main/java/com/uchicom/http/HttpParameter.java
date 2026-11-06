@@ -110,7 +110,8 @@ public class HttpParameter extends Parameter {
                   new RedirectHttpServerProcess(parameter, router, socket, timeout));
       case "proxy" ->
           new MultiSocketServer(
-              this, (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket, timeout));
+              this,
+              (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket, timeout));
       default -> null;
     };
   }
