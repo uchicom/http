@@ -118,7 +118,12 @@ public class HttpProcess implements ServerProcess {
           remaining -= skipped;
         }
       }
-      staticHandler.handle(urls[0], paramMap, headMap, os);
+      boolean isHead = "HEAD".equals(heads[0]);
+      if (!isHead && !"GET".equals(heads[0])) {
+        router.error("405", "Allow: GET, HEAD\r\n", os);
+        return;
+      }
+      staticHandler.handle(urls[0], paramMap, headMap, os, !isHead);
 
     } else {
       // Bad Request
