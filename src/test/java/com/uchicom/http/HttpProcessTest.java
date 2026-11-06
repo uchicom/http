@@ -117,14 +117,14 @@ public class HttpProcessTest {
 
   @Test
   public void contentLengthWithBody() throws Exception {
-    assertThat(execute("POST /a.html HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"))
+    assertThat(execute("GET /a.html HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"))
         .startsWith("HTTP/1.1 200 OK");
   }
 
   @Test
   public void contentLengthLargerThanBody() throws Exception {
     // 宣言より短いボディでも無限ループや例外にならない
-    assertThat(execute("POST /a.html HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"))
+    assertThat(execute("GET /a.html HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"))
         .startsWith("HTTP/1.1 200 OK");
   }
 
@@ -165,6 +165,26 @@ public class HttpProcessTest {
     String atLimit = "X-A: b\r\n".repeat(Constants.MAX_HEADER_COUNT);
     assertThat(execute("GET /a.html HTTP/1.1\r\n" + atLimit + "\r\n"))
         .startsWith("HTTP/1.1 200 OK");
+  }
+
+  @Test
+  public void headReturnsHeadersWithoutBody() throws Exception {
+    String response = execute("HEAD /a.html HTTP/1.1\r\nHost: localhost\r\n\r\n");
+
+    assertThat(response).startsWith("HTTP/1.1 200 OK");
+    assertThat(response).contains("Content-Length: 4");
+    assertThat(response).endsWith("\r\n\r\n");
+  }
+
+  @Test
+  public void unsupportedMethodIs405() throws Exception {
+    for (String method : new String[] {"POST", "PUT", "DELETE", "PATCH", "OPTIONS"}) {
+      String response = execute(method + " /a.html HTTP/1.1\r\nHost: localhost\r\n\r\n");
+
+      assertThat(response).startsWith("HTTP/1.1 405 Method Not Allowed");
+      assertThat(response).contains("Allow: GET, HEAD\r\n");
+      assertThat(response).doesNotContain("body");
+    }
   }
 
   @Test

@@ -240,6 +240,22 @@ public class DefaultRouter implements Router {
       Map<String, String> headMap,
       OutputStream outputStream)
       throws IOException {
+    respond(fileName, headMap, outputStream, true);
+  }
+
+  @Override
+  public void requestHead(
+      String fileName,
+      Map<String, List<String>> paramMap,
+      Map<String, String> headMap,
+      OutputStream outputStream)
+      throws IOException {
+    respond(fileName, headMap, outputStream, false);
+  }
+
+  private void respond(
+      String fileName, Map<String, String> headMap, OutputStream outputStream, boolean withBody)
+      throws IOException {
 
     WebFile file = find(fileName);
     if (file == null) {
@@ -284,7 +300,9 @@ public class DefaultRouter implements Router {
       //				bytes = new byte[64 * 1024];
       //			}
 
-      file.write(ps);
+      if (withBody) {
+        file.write(ps);
+      }
       ps.flush();
     }
   }
@@ -340,7 +358,9 @@ public class DefaultRouter implements Router {
    *
    * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
    */
-  void error(String code, String extraHeaders, OutputStream outputStream) throws IOException {
+  @Override
+  public void error(String code, String extraHeaders, OutputStream outputStream)
+      throws IOException {
     try (PrintStream ps = new PrintStream(outputStream); ) {
       ps.print("HTTP/1.1 ");
       ps.print(code);

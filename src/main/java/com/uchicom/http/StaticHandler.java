@@ -49,6 +49,21 @@ public class StaticHandler {
   public void handle(
       String path, Map<String, List<String>> paramMap, Map<String, String> headMap, OutputStream os)
       throws IOException {
+    handle(path, paramMap, headMap, os, true);
+  }
+
+  /**
+   * リクエストを処理して、ファイル・304・404のいずれかを書き出す.
+   *
+   * @param withBody falseの場合(HEAD)はボディを書き出さない
+   */
+  public void handle(
+      String path,
+      Map<String, List<String>> paramMap,
+      Map<String, String> headMap,
+      OutputStream os,
+      boolean withBody)
+      throws IOException {
     String fileName = normalize(path);
     if (!router.exists(fileName)) {
       router.error("404", os);
@@ -66,7 +81,11 @@ public class StaticHandler {
       os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
       return;
     }
-    router.request(fileName, paramMap, headMap, os);
+    if (withBody) {
+      router.request(fileName, paramMap, headMap, os);
+    } else {
+      router.requestHead(fileName, paramMap, headMap, os);
+    }
   }
 
   private TemporalAccessor parseIfModifiedSince(String value) {
