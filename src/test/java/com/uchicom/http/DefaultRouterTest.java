@@ -681,7 +681,8 @@ public class DefaultRouterTest {
 
   @Test
   public void forwardKeepsBinaryBody() throws Exception {
-    byte[] body = new byte[256];
+    // 転送用バッファ(8KB)を複数回またぐ大きさにする
+    byte[] body = new byte[20000];
     for (int i = 0; i < body.length; i++) {
       body[i] = (byte) i;
     }
@@ -714,7 +715,11 @@ public class DefaultRouterTest {
           "/fwd/", forwardProperties("localhost", String.valueOf(server.getLocalPort())));
 
       String response =
-          forward("Content-Length: 256\r\n\r\n" + new String(body, StandardCharsets.ISO_8859_1));
+          forward(
+              "Content-Length: "
+                  + body.length
+                  + "\r\n\r\n"
+                  + new String(body, StandardCharsets.ISO_8859_1));
       thread.join(5000);
 
       assertThat(received.toByteArray()).isEqualTo(body);

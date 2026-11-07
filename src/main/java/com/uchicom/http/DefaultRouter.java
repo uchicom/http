@@ -56,6 +56,9 @@ public class DefaultRouter implements Router {
   /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
   protected long cacheSize;
 
+  /** forwardでリクエストボディを転送する際のバッファサイズ(文字数=バイト数) */
+  private static final int FORWARD_BUFFER_SIZE = 8 * 1024;
+
   /** forward先への接続タイムアウト(ミリ秒) */
   protected int forwardConnectTimeout = 5000;
 
@@ -525,15 +528,18 @@ public class DefaultRouter implements Router {
       sb.append("\r\n");
       os.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
       // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
-      if (contentLength > 0) {
-        char[] chars = new char[contentLength];
-        int index = 0;
-        int read;
-        while (index < contentLength
-            && (read = reader.read(chars, index, contentLength - index)) > 0) {
-          index += read;
+      // 固定長バッファで読みながら転送し、ボディ全体をメモリに載せない
+      char[] chars = new char[Math.min(contentLength, FORWARD_BUFFER_SIZE)];
+      byte[] body = new byte[chars.length];
+      int remaining = contentLength;
+      int read;
+      while (remaining > 0
+          && (read = reader.read(chars, 0, Math.min(remaining, chars.length))) > 0) {
+        for (int i = 0; i < read; i++) {
+          body[i] = (byte) chars[i];
         }
-        os.write(new String(chars, 0, index).getBytes(StandardCharsets.ISO_8859_1));
+        os.write(body, 0, read);
+        remaining -= read;
       }
       os.flush();
       InputStream is = socket.getInputStream();
