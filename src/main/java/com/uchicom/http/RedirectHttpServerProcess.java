@@ -61,7 +61,13 @@ public class RedirectHttpServerProcess implements ServerProcess {
                 new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
         OutputStream os = socket.getOutputStream(); ) {
       // リクエストの分解、保持
-      String head = br.readLine();
+      String head;
+      try {
+        head = LineReader.readLine(br);
+      } catch (LineReader.LineTooLongException e) {
+        router.error("414", os);
+        return;
+      }
       if (head != null) {
         String[] heads = head.split(" ", 0);
         if (heads.length == 3) {

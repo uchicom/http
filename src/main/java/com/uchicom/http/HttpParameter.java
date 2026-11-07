@@ -62,6 +62,12 @@ public class HttpParameter extends Parameter {
       return false;
     }
 
+    // リダイレクト先
+    if ("redirect".equals(get("type")) && !is("redirect")) {
+      ps.println("redirect is required when type is redirect");
+      return false;
+    }
+
     router = new DefaultRouter();
     // キャッシュ対象の最大ファイルサイズ(KB)。指定なしまたは0はキャッシュなし
     long cacheSize = 0;
