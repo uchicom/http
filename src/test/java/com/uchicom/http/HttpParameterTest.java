@@ -35,4 +35,18 @@ public class HttpParameterTest {
     assertThat(create("multi").createServer()).isInstanceOf(MultiSocketServer.class);
     assertThat(create("pool").createServer()).isInstanceOf(PoolSocketServer.class);
   }
+
+  @Test
+  public void redirectRequiresRedirectParameter() throws Exception {
+    HttpParameter parameter =
+        new HttpParameter(new String[] {"-type", "redirect", "-dir", baseDir.toString()});
+    assertThat(parameter.init(new PrintStream(new ByteArrayOutputStream()))).isFalse();
+
+    parameter =
+        new HttpParameter(
+            new String[] {
+              "-type", "redirect", "-dir", baseDir.toString(), "-redirect", "http://example.com"
+            });
+    assertThat(parameter.init(new PrintStream(new ByteArrayOutputStream()))).isTrue();
+  }
 }
