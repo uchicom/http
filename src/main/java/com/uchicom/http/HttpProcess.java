@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,18 +27,26 @@ public class HttpProcess implements ServerProcess {
 
   protected final StaticHandler staticHandler;
 
-  /** 最終処理時刻 */
-  private long lastTime = System.currentTimeMillis();
+  /** 読み込みタイムアウト(ミリ秒) */
+  private final int timeout;
 
-  public HttpProcess(Router router, Socket socket) {
+  /** 最終アクセス時刻(ミリ秒). 読み書きのたびに更新する */
+  private volatile long lastTime = System.currentTimeMillis();
+
+  public HttpProcess(Router router, Socket socket, int timeout) {
     this.socket = socket;
     this.router = router;
+    this.timeout = timeout;
     this.staticHandler = new StaticHandler(router);
   }
 
   @Override
   public long getLastTime() {
-    return lastTime; // TODO これabstracだな
+    return lastTime;
+  }
+
+  private void touch() {
+    lastTime = System.currentTimeMillis();
   }
 
   @Override
@@ -57,13 +66,19 @@ public class HttpProcess implements ServerProcess {
     if (heads.length == 3) {
       // 初期応答行を返却する
       String[] urls = heads[1].split("\\?", 0);
-      String fileName = StaticHandler.normalize(urls[0]);
+      String fileName;
+      try {
+        fileName = StaticHandler.normalize(urls[0]);
+      } catch (IllegalArgumentException e) {
+        router.error("400", os);
+        return;
+      }
       if (router.isForward(fileName)) {
         router.forward(fileName, heads, br, os, socket.getInetAddress().getHostAddress());
         return;
       }
       Map<String, List<String>> paramMap = null;
-      Map<String, String> headMap = new HashMap<>();
+      Map<String, String> headMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
       if (urls.length > 1) {
         // GETパラメータありなので解析。
         paramMap = createGetParamMap(urls[1]);
@@ -117,7 +132,12 @@ public class HttpProcess implements ServerProcess {
           remaining -= skipped;
         }
       }
-      staticHandler.handle(urls[0], paramMap, headMap, os);
+      boolean isHead = "HEAD".equals(heads[0]);
+      if (!isHead && !"GET".equals(heads[0])) {
+        router.error("405", "Allow: GET, HEAD\r\n", os);
+        return;
+      }
+      staticHandler.handle(urls[0], paramMap, headMap, os, !isHead);
 
     } else {
       // Bad Request
@@ -128,10 +148,13 @@ public class HttpProcess implements ServerProcess {
   @Override
   public void execute() {
     try {
+      socket.setSoTimeout(timeout);
       BufferedReader br =
           new BufferedReader(
-              new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
-      OutputStream os = socket.getOutputStream();
+              new InputStreamReader(
+                  ActivityStreams.wrap(socket.getInputStream(), this::touch),
+                  StandardCharsets.ISO_8859_1));
+      OutputStream os = ActivityStreams.wrap(socket.getOutputStream(), this::touch);
       // リクエストの分解、保持
       String startLine;
       try {

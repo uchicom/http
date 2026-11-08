@@ -66,6 +66,32 @@ public interface Router {
       throws IOException;
 
   /**
+   * HEADリクエストを処理する。 {@link #request}と同じヘッダーを書き出し、ボディは書き出さない。
+   *
+   * @param filePath ファイルパス
+   * @param paramMap GETパラメータ。ない場合はnull
+   * @param headMap リクエストヘッダー
+   * @param outputStream 出力先
+   * @throws IOException 入出力エラー
+   */
+  public void requestHead(
+      String filePath,
+      Map<String, List<String>> paramMap,
+      Map<String, String> headMap,
+      OutputStream outputStream)
+      throws IOException;
+
+  /**
+   * 追加ヘッダー付きのエラー応答を書き出す
+   *
+   * @param code ステータスコード
+   * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
+   * @param outputStream 出力先
+   * @throws IOException 入出力エラー
+   */
+  public void error(String code, String extraHeaders, OutputStream outputStream) throws IOException;
+
+  /**
    * エラー応答を書き出す
    *
    * @param code ステータスコード

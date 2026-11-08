@@ -37,7 +37,7 @@ public class HttpProcessTest {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     when(socket.getOutputStream()).thenReturn(out);
 
-    new HttpProcess(router, socket).execute();
+    new HttpProcess(router, socket, Constants.DEFAULT_TIMEOUT).execute();
 
     return out.toString(StandardCharsets.UTF_8);
   }
@@ -62,6 +62,17 @@ public class HttpProcessTest {
         execute("GET /a.html HTTP/1.1\r\nIf-Modified-Since: " + ifModifiedSince(3600) + "\r\n\r\n");
 
     assertThat(response).startsWith("HTTP/1.1 304");
+  }
+
+  @Test
+  public void lowerCaseHeaderNames() throws Exception {
+    // ヘッダー名は大文字小文字を区別しない
+    assertThat(
+            execute(
+                "GET /a.html HTTP/1.1\r\nif-modified-since: " + ifModifiedSince(3600) + "\r\n\r\n"))
+        .startsWith("HTTP/1.1 304");
+    assertThat(execute("POST /a.html HTTP/1.1\r\ncontent-length: abc\r\n\r\n"))
+        .startsWith("HTTP/1.1 400");
   }
 
   @Test
@@ -106,14 +117,14 @@ public class HttpProcessTest {
 
   @Test
   public void contentLengthWithBody() throws Exception {
-    assertThat(execute("POST /a.html HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"))
+    assertThat(execute("GET /a.html HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"))
         .startsWith("HTTP/1.1 200 OK");
   }
 
   @Test
   public void contentLengthLargerThanBody() throws Exception {
     // 宣言より短いボディでも無限ループや例外にならない
-    assertThat(execute("POST /a.html HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"))
+    assertThat(execute("GET /a.html HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"))
         .startsWith("HTTP/1.1 200 OK");
   }
 
@@ -157,9 +168,46 @@ public class HttpProcessTest {
   }
 
   @Test
+  public void headReturnsHeadersWithoutBody() throws Exception {
+    String response = execute("HEAD /a.html HTTP/1.1\r\nHost: localhost\r\n\r\n");
+
+    assertThat(response).startsWith("HTTP/1.1 200 OK");
+    assertThat(response).contains("Content-Length: 4");
+    assertThat(response).endsWith("\r\n\r\n");
+  }
+
+  @Test
+  public void unsupportedMethodIs405() throws Exception {
+    for (String method : new String[] {"POST", "PUT", "DELETE", "PATCH", "OPTIONS"}) {
+      String response = execute(method + " /a.html HTTP/1.1\r\nHost: localhost\r\n\r\n");
+
+      assertThat(response).startsWith("HTTP/1.1 405 Method Not Allowed");
+      assertThat(response).contains("Allow: GET, HEAD\r\n");
+      assertThat(response).doesNotContain("body");
+    }
+  }
+
+  @Test
   public void badRequest() throws Exception {
     assertThat(execute("GARBAGE\r\n\r\n")).startsWith("HTTP/1.1 400");
     assertThat(execute("")).startsWith("HTTP/1.1 400");
+  }
+
+  @Test
+  public void idleConnectionIsClosedByTimeout() throws Exception {
+    try (java.net.ServerSocket server =
+            new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
+        Socket client =
+            new Socket(java.net.InetAddress.getLoopbackAddress(), server.getLocalPort());
+        Socket accepted = server.accept()) {
+      client.setSoTimeout(5000);
+      long start = System.currentTimeMillis();
+      // 何も送らないクライアント
+      new HttpProcess(router, accepted, 200).execute();
+
+      assertThat(System.currentTimeMillis() - start).isLessThan(5000);
+      assertThat(accepted.isClosed()).isTrue();
+    }
   }
 
   @Test

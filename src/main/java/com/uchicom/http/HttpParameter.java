@@ -18,6 +18,7 @@ public class HttpParameter extends Parameter {
 
   private Router router;
   private ProxyConfig proxyConfig;
+  private int timeout = Constants.DEFAULT_TIMEOUT;
 
   public HttpParameter(String[] args) {
     super(args);
@@ -50,6 +51,23 @@ public class HttpParameter extends Parameter {
       put("pool", Constants.DEFAULT_POOL);
     }
 
+    // 読み込みタイムアウト(ミリ秒)。0は無制限
+    try {
+      timeout = getInt("timeout", Constants.DEFAULT_TIMEOUT);
+      if (timeout < 0) {
+        throw new NumberFormatException();
+      }
+    } catch (NumberFormatException e) {
+      ps.println("timeout must be a non-negative integer (ms): " + get("timeout"));
+      return false;
+    }
+
+    // リダイレクト先
+    if ("redirect".equals(get("type")) && !is("redirect")) {
+      ps.println("redirect is required when type is redirect");
+      return false;
+    }
+
     router = new DefaultRouter();
     // キャッシュ対象の最大ファイルサイズ(KB)。指定なしまたは0はキャッシュなし
     long cacheSize = 0;
@@ -80,20 +98,26 @@ public class HttpParameter extends Parameter {
   public Server createServer() {
     return switch (get("type")) {
       case "multi" ->
-          new MultiSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+          new MultiSocketServer(
+              this, (parameter, socket) -> new HttpProcess(router, socket, timeout));
       case "pool" ->
-          new PoolSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+          new PoolSocketServer(
+              this, (parameter, socket) -> new HttpProcess(router, socket, timeout));
       case "virtual" ->
-          new VirtualSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+          new VirtualSocketServer(
+              this, (parameter, socket) -> new HttpProcess(router, socket, timeout));
       case "single" ->
-          new SingleSocketServer(this, (parameter, socket) -> new HttpProcess(router, socket));
+          new SingleSocketServer(
+              this, (parameter, socket) -> new HttpProcess(router, socket, timeout));
       case "redirect" ->
           new MultiSocketServer(
               this,
-              (parameter, socket) -> new RedirectHttpServerProcess(parameter, router, socket));
+              (parameter, socket) ->
+                  new RedirectHttpServerProcess(parameter, router, socket, timeout));
       case "proxy" ->
           new MultiSocketServer(
-              this, (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket));
+              this,
+              (parameter, socket) -> new ProxyHttpServerProcess(proxyConfig, socket, timeout));
       default -> null;
     };
   }

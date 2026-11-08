@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -49,8 +50,14 @@ public class DefaultRouter implements Router {
   /** 公開ディレクトリの実パス(シンボリックリンク・大文字小文字・短縮名を解決済み。解決できない場合はhtmlPathと同じ) */
   protected Path htmlRealPath;
 
+  /** .basicの最終更新時刻(ディレクトリキー別). 更新検知用 */
+  private final Map<String, Long> basicModifiedMap = new ConcurrentHashMap<>();
+
   /** キャッシュ対象の最大ファイルサイズ(バイト)。0以下はキャッシュなし */
   protected long cacheSize;
+
+  /** forwardでリクエストボディを転送する際のバッファサイズ(文字数=バイト数) */
+  private static final int FORWARD_BUFFER_SIZE = 8 * 1024;
 
   /** forward先への接続タイムアウト(ミリ秒) */
   protected int forwardConnectTimeout = 5000;
@@ -106,8 +113,42 @@ public class DefaultRouter implements Router {
     } else {
       webFile = new WebFile(file, 0);
     }
-    webFile.setBasic(basicMap.get(directoryKey(path.getParent())));
+    String key = directoryKey(path.getParent());
+    try {
+      refreshBasic(path.getParent().resolve(".basic").toFile(), key);
+    } catch (IOException e) {
+      // 認証設定を読めない場合は認証なしで公開せず、アクセスを拒否する
+      LOGGER.log(Level.WARNING, path.getParent() + " .basic can not be loaded", e);
+      webFileMap.remove(filePath);
+      return null;
+    }
+    webFile.setBasic(basicMap.get(key));
     return webFile;
+  }
+
+  /** 起動後に追加・更新された.basicを反映する. 読み込めない場合はIOExceptionを投げる. */
+  private void refreshBasic(File basicFile, String key) throws IOException {
+    if (!basicFile.isFile()) {
+      return;
+    }
+    long modified = basicFile.lastModified();
+    Long loaded = basicModifiedMap.get(key);
+    if (loaded != null && loaded == modified && basicMap.containsKey(key)) {
+      return;
+    }
+    basicMap.put(key, loadProperties(basicFile));
+    basicModifiedMap.put(key, modified);
+  }
+
+  private static Properties loadProperties(File file) throws IOException {
+    try (FileInputStream fis = new FileInputStream(file)) {
+      Properties properties = new Properties();
+      properties.load(fis);
+      return properties;
+    } catch (IllegalArgumentException e) {
+      // 不正なUnicodeエスケープ
+      throw new IOException(file + " is malformed", e);
+    }
   }
 
   /**
@@ -202,6 +243,22 @@ public class DefaultRouter implements Router {
       Map<String, String> headMap,
       OutputStream outputStream)
       throws IOException {
+    respond(fileName, headMap, outputStream, true);
+  }
+
+  @Override
+  public void requestHead(
+      String fileName,
+      Map<String, List<String>> paramMap,
+      Map<String, String> headMap,
+      OutputStream outputStream)
+      throws IOException {
+    respond(fileName, headMap, outputStream, false);
+  }
+
+  private void respond(
+      String fileName, Map<String, String> headMap, OutputStream outputStream, boolean withBody)
+      throws IOException {
 
     WebFile file = find(fileName);
     if (file == null) {
@@ -246,7 +303,9 @@ public class DefaultRouter implements Router {
       //				bytes = new byte[64 * 1024];
       //			}
 
-      file.write(ps);
+      if (withBody) {
+        file.write(ps);
+      }
       ps.flush();
     }
   }
@@ -263,12 +322,12 @@ public class DefaultRouter implements Router {
         if (".basic".equals(file.getName())) {
           String relativePath = directoryKey(file.getParentFile().toPath());
           // Basicファイル認証がある場合
-          try (FileInputStream fis = new FileInputStream(file)) {
-            Properties properties = new Properties();
-            properties.load(fis);
-            basicMap.put(relativePath, properties);
+          // 読み込めない場合は認証なしで公開しないよう、起動を失敗させる
+          try {
+            basicMap.put(relativePath, loadProperties(file));
+            basicModifiedMap.put(relativePath, file.lastModified());
           } catch (IOException e) {
-            LOGGER.log(Level.WARNING, file + " can not be loaded", e);
+            throw new UncheckedIOException(file + " can not be loaded", e);
           }
         } else if (".forward".equals(file.getName())) {
           String relativePath = directoryKey(file.getParentFile().toPath());
@@ -283,6 +342,9 @@ public class DefaultRouter implements Router {
       }
     } else if (file.isDirectory()) {
       File[] childs = file.listFiles();
+      if (childs == null) {
+        throw new UncheckedIOException(new IOException(file + " can not be listed"));
+      }
       for (File childFile : childs) {
         loadSettings(childFile);
       }
@@ -299,7 +361,9 @@ public class DefaultRouter implements Router {
    *
    * @param extraHeaders 追加するヘッダー(各行をCRLFで終端したもの)
    */
-  void error(String code, String extraHeaders, OutputStream outputStream) throws IOException {
+  @Override
+  public void error(String code, String extraHeaders, OutputStream outputStream)
+      throws IOException {
     try (PrintStream ps = new PrintStream(outputStream); ) {
       ps.print("HTTP/1.1 ");
       ps.print(code);
@@ -464,15 +528,18 @@ public class DefaultRouter implements Router {
       sb.append("\r\n");
       os.write(sb.toString().getBytes(StandardCharsets.ISO_8859_1));
       // readerはISO-8859-1で生成されている前提(1文字=1バイト)で、ボディのバイナリを壊さない
-      if (contentLength > 0) {
-        char[] chars = new char[contentLength];
-        int index = 0;
-        int read;
-        while (index < contentLength
-            && (read = reader.read(chars, index, contentLength - index)) > 0) {
-          index += read;
+      // 固定長バッファで読みながら転送し、ボディ全体をメモリに載せない
+      char[] chars = new char[Math.min(contentLength, FORWARD_BUFFER_SIZE)];
+      byte[] body = new byte[chars.length];
+      int remaining = contentLength;
+      int read;
+      while (remaining > 0
+          && (read = reader.read(chars, 0, Math.min(remaining, chars.length))) > 0) {
+        for (int i = 0; i < read; i++) {
+          body[i] = (byte) chars[i];
         }
-        os.write(new String(chars, 0, index).getBytes(StandardCharsets.ISO_8859_1));
+        os.write(body, 0, read);
+        remaining -= read;
       }
       os.flush();
       InputStream is = socket.getInputStream();

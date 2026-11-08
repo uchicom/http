@@ -3,6 +3,7 @@ package com.uchicom.http;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -28,14 +29,35 @@ public class StaticHandler {
    * リクエストパス(クエリ文字列を除く)を、公開ファイルのパスに正規化する. `/`で終わる場合は`index.htm`を付ける.
    *
    * @param path リクエストパス
-   * @return 先頭が`/`のファイルパス
+   * @return 先頭が`/`のファイルパス(UTF-8でパーセントデコード済み)
+   * @throws IllegalArgumentException 不正なパーセントエスケープ・UTF-8の場合
    */
   public static String normalize(String path) {
+    // 隠しファイル・`..`・`\`の判定は、デコード後のパスに対してRouterで行われる
+    path = decode(path);
     String fileName = path.startsWith("/") ? path : "/" + path;
     if (path.endsWith("/")) {
       fileName += "index.htm";
     }
     return fileName;
+  }
+
+  /**
+   * パーセントエンコードをUTF-8としてデコードする. パスなので`+`は空白に変換しない.
+   *
+   * @throws IllegalArgumentException 不正なエスケープ、または不正なUTF-8の場合
+   */
+  static String decode(String path) {
+    if (path.indexOf('%') < 0) {
+      return path;
+    }
+    // URLDecoderはフォーム用で`+`を空白にするため、先に`%2B`へ置き換えて保持する
+    String decoded = URLDecoder.decode(path.replace("+", "%2B"), StandardCharsets.UTF_8);
+    // 不正なUTF-8は黙ってU+FFFDに置き換えられるので、置換されていたら不正として扱う
+    if (decoded.indexOf('�') >= 0) {
+      throw new IllegalArgumentException("invalid UTF-8: " + path);
+    }
+    return decoded;
   }
 
   /**
@@ -49,7 +71,28 @@ public class StaticHandler {
   public void handle(
       String path, Map<String, List<String>> paramMap, Map<String, String> headMap, OutputStream os)
       throws IOException {
-    String fileName = normalize(path);
+    handle(path, paramMap, headMap, os, true);
+  }
+
+  /**
+   * リクエストを処理して、ファイル・304・404のいずれかを書き出す.
+   *
+   * @param withBody falseの場合(HEAD)はボディを書き出さない
+   */
+  public void handle(
+      String path,
+      Map<String, List<String>> paramMap,
+      Map<String, String> headMap,
+      OutputStream os,
+      boolean withBody)
+      throws IOException {
+    String fileName;
+    try {
+      fileName = normalize(path);
+    } catch (IllegalArgumentException e) {
+      router.error("400", os);
+      return;
+    }
     if (!router.exists(fileName)) {
       router.error("404", os);
       return;
@@ -66,7 +109,11 @@ public class StaticHandler {
       os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
       return;
     }
-    router.request(fileName, paramMap, headMap, os);
+    if (withBody) {
+      router.request(fileName, paramMap, headMap, os);
+    } else {
+      router.requestHead(fileName, paramMap, headMap, os);
+    }
   }
 
   private TemporalAccessor parseIfModifiedSince(String value) {

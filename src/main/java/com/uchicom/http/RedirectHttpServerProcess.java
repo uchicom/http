@@ -24,15 +24,25 @@ public class RedirectHttpServerProcess implements ServerProcess {
   private Socket socket;
   Router router;
 
-  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket) {
+  private final int timeout;
+
+  /** 最終アクセス時刻(ミリ秒). 読み書きのたびに更新する */
+  private volatile long lastTime = System.currentTimeMillis();
+
+  public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket, int timeout) {
     this.parameter = parameter;
     this.socket = socket;
     this.router = router;
+    this.timeout = timeout;
   }
 
   @Override
   public long getLastTime() {
-    return System.currentTimeMillis();
+    return lastTime;
+  }
+
+  private void touch() {
+    lastTime = System.currentTimeMillis();
   }
 
   @Override
@@ -46,12 +56,27 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
   @Override
   public void execute() {
+    try {
+      socket.setSoTimeout(timeout);
+    } catch (IOException e) {
+      LOGGER.log(Level.WARNING, "timeout can not be set", e);
+      forceClose();
+      return;
+    }
     try (BufferedReader br =
             new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
-        OutputStream os = socket.getOutputStream(); ) {
+                new InputStreamReader(
+                    ActivityStreams.wrap(socket.getInputStream(), this::touch),
+                    StandardCharsets.ISO_8859_1));
+        OutputStream os = ActivityStreams.wrap(socket.getOutputStream(), this::touch); ) {
       // リクエストの分解、保持
-      String head = br.readLine();
+      String head;
+      try {
+        head = LineReader.readLine(br);
+      } catch (LineReader.LineTooLongException e) {
+        router.error("414", os);
+        return;
+      }
       if (head != null) {
         String[] heads = head.split(" ", 0);
         if (heads.length == 3) {
