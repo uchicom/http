@@ -26,6 +26,9 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
   private final int timeout;
 
+  /** 最終アクセス時刻(ミリ秒). 読み書きのたびに更新する */
+  private volatile long lastTime = System.currentTimeMillis();
+
   public RedirectHttpServerProcess(Parameter parameter, Router router, Socket socket, int timeout) {
     this.parameter = parameter;
     this.socket = socket;
@@ -35,7 +38,11 @@ public class RedirectHttpServerProcess implements ServerProcess {
 
   @Override
   public long getLastTime() {
-    return System.currentTimeMillis();
+    return lastTime;
+  }
+
+  private void touch() {
+    lastTime = System.currentTimeMillis();
   }
 
   @Override
@@ -58,8 +65,10 @@ public class RedirectHttpServerProcess implements ServerProcess {
     }
     try (BufferedReader br =
             new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
-        OutputStream os = socket.getOutputStream(); ) {
+                new InputStreamReader(
+                    ActivityStreams.wrap(socket.getInputStream(), this::touch),
+                    StandardCharsets.ISO_8859_1));
+        OutputStream os = ActivityStreams.wrap(socket.getOutputStream(), this::touch); ) {
       // リクエストの分解、保持
       String head;
       try {
