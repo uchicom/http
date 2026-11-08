@@ -30,6 +30,9 @@ public class HttpProcess implements ServerProcess {
   /** 読み込みタイムアウト(ミリ秒) */
   private final int timeout;
 
+  /** 最終アクセス時刻(ミリ秒). 読み書きのたびに更新する */
+  private volatile long lastTime = System.currentTimeMillis();
+
   public HttpProcess(Router router, Socket socket, int timeout) {
     this.socket = socket;
     this.router = router;
@@ -39,8 +42,11 @@ public class HttpProcess implements ServerProcess {
 
   @Override
   public long getLastTime() {
-    // 無通信はsetSoTimeoutで切断するので、最終処理時刻は管理しない
-    return System.currentTimeMillis();
+    return lastTime;
+  }
+
+  private void touch() {
+    lastTime = System.currentTimeMillis();
   }
 
   @Override
@@ -145,8 +151,10 @@ public class HttpProcess implements ServerProcess {
       socket.setSoTimeout(timeout);
       BufferedReader br =
           new BufferedReader(
-              new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
-      OutputStream os = socket.getOutputStream();
+              new InputStreamReader(
+                  ActivityStreams.wrap(socket.getInputStream(), this::touch),
+                  StandardCharsets.ISO_8859_1));
+      OutputStream os = ActivityStreams.wrap(socket.getOutputStream(), this::touch);
       // リクエストの分解、保持
       String startLine;
       try {
